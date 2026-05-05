@@ -48,7 +48,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 1 — Project scaffold + config loader + secure authentication
+## Milestone 1 — Project scaffold + config loader + secure authentication ✅ (Completed)
 **Objective:** Stand up runnable MCP service shell with robust auth/config loading.
 
 ### Scope

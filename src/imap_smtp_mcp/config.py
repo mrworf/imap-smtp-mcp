@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from enum import Enum
+
+
+class ConfigError(ValueError):
+    pass
+
+
+class ProtocolMode(str, Enum):
+    SSL = "ssl"
+    STARTTLS = "starttls"
+
+
+@dataclass(frozen=True)
+class EndpointConfig:
+    host: str
+    port: int
+    mode: ProtocolMode
+
+
+@dataclass(frozen=True)
+class UserCredentials:
+    username: str
+    imap_username: str
+    imap_password: str
+    smtp_username: str
+    smtp_password: str
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    allowed_users: tuple[str, ...]
+    imap: EndpointConfig
+    smtp: EndpointConfig
+    action_flags: dict[str, bool]
+    users: dict[str, UserCredentials]
+
+
+def _require(name: str) -> str:
+    val = os.getenv(name)
+    if not val:
+        raise ConfigError(f"Missing required environment variable: {name}")
+    return val
+
+
+def _parse_port(name: str) -> int:
+    raw = _require(name)
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid port for {name}: {raw}") from exc
+    if not (1 <= port <= 65535):
+        raise ConfigError(f"Port out of range for {name}: {raw}")
+    return port
+
+
+def _parse_mode(name: str) -> ProtocolMode:
+    raw = _require(name).lower()
+    try:
+        return ProtocolMode(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid protocol mode for {name}: {raw}") from exc
+
+
+def _parse_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    norm = raw.strip().lower()
+    if norm in {"1", "true", "yes", "on"}:
+        return True
+    if norm in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"Invalid boolean for {name}: {raw}")
+
+
+def load_config() -> AppConfig:
+    allowed_users = tuple(u.strip() for u in _require("MCP_ALLOWED_USERS").split(",") if u.strip())
+    if not allowed_users:
+        raise ConfigError("MCP_ALLOWED_USERS must include at least one user")
+
+    imap = EndpointConfig(_require("IMAP_HOST"), _parse_port("IMAP_PORT"), _parse_mode("IMAP_MODE"))
+    smtp = EndpointConfig(_require("SMTP_HOST"), _parse_port("SMTP_PORT"), _parse_mode("SMTP_MODE"))
+
+    actions = {
+        "list_folders": _parse_bool("ACTION_LIST_FOLDERS", True),
+        "search_emails": _parse_bool("ACTION_SEARCH_EMAILS", True),
+        "send_email": _parse_bool("ACTION_SEND_EMAIL", True),
+    }
+
+    users: dict[str, UserCredentials] = {}
+    for username in allowed_users:
+        key = username.upper().replace("-", "_")
+        users[username] = UserCredentials(
+            username=username,
+            imap_username=_require(f"USER_{key}_IMAP_USERNAME"),
+            imap_password=_require(f"USER_{key}_IMAP_PASSWORD"),
+            smtp_username=_require(f"USER_{key}_SMTP_USERNAME"),
+            smtp_password=_require(f"USER_{key}_SMTP_PASSWORD"),
+        )
+
+    return AppConfig(allowed_users=allowed_users, imap=imap, smtp=smtp, action_flags=actions, users=users)
