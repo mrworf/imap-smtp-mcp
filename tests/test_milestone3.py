@@ -2,9 +2,8 @@ from email.message import EmailMessage
 
 import pytest
 
-from imap_smtp_mcp.capabilities import CapabilityError, ensure_action_enabled
 from imap_smtp_mcp.config import load_config
-from imap_smtp_mcp.errors import InvalidInputError, NotFoundError
+from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from imap_smtp_mcp.imap_adapter import ImapAdapter
 from imap_smtp_mcp.read_tools import ReadOnlyMailboxService
 
@@ -99,7 +98,7 @@ def _service(config):
     def fake_ssl_factory(host, port, ssl_context):
         return client
 
-    return ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=fake_ssl_factory))
+    return ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=fake_ssl_factory), config=config)
 
 
 def test_readonly_tools_positive_flows(base_env):
@@ -134,5 +133,17 @@ def test_invalid_input_and_not_found(base_env):
 def test_action_flag_blocks_before_network(base_env, monkeypatch):
     monkeypatch.setenv("ACTION_READ_EMAIL", "false")
     config = load_config()
-    with pytest.raises(CapabilityError, match="Action disabled: read_email"):
-        ensure_action_enabled("read_email", config)
+    service = _service(config)
+    with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
+        service.read_email("u", "p", "INBOX", "1")
+
+
+def test_backend_error_maps_to_stable_mcp_error(base_env):
+    config = load_config()
+
+    def failing_ssl_factory(host, port, ssl_context):
+        raise OSError("socket error")
+
+    service = ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=failing_ssl_factory), config=config)
+    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable"):
+        service.list_folders("u", "p")
