@@ -147,3 +147,5 @@ def test_backend_error_maps_to_stable_mcp_error(base_env):
     service = ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=failing_ssl_factory), config=config)
     with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable"):
         service.list_folders("u", "p")
+    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable"):
+        service.search_emails("u", "p", "INBOX", "hello")
