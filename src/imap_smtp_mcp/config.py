@@ -112,6 +112,8 @@ def load_config() -> AppConfig:
     actions = {
         "list_folders": _parse_bool("ACTION_LIST_FOLDERS", True),
         "search_emails": _parse_bool("ACTION_SEARCH_EMAILS", True),
+        "list_emails": _parse_bool("ACTION_LIST_EMAILS", True),
+        "read_email": _parse_bool("ACTION_READ_EMAIL", True),
         "send_email": _parse_bool("ACTION_SEND_EMAIL", True),
     }
 
