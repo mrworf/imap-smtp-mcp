@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from email import message_from_bytes
 from email.message import Message
 
-from .errors import BackendUnavailableError, InvalidInputError, NotFoundError
+from .capabilities import CapabilityError, ensure_action_enabled
+from .config import AppConfig
+from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from .imap_adapter import ImapAdapter, ImapAdapterError
 
 MAX_RESULTS = 100
@@ -84,14 +86,28 @@ def _html_to_markdown(value: str) -> str:
 
 
 class ReadOnlyMailboxService:
-    def __init__(self, imap_adapter: ImapAdapter) -> None:
+    def __init__(self, imap_adapter: ImapAdapter, config: AppConfig | None = None) -> None:
         self._imap_adapter = imap_adapter
+        self._config = config
+
+    def _enforce_action(self, action: str) -> None:
+        if self._config is None:
+            return
+        try:
+            ensure_action_enabled(action, self._config)
+        except CapabilityError as exc:
+            raise PermissionDisabledError(str(exc)) from exc
 
     def list_folders(self, username: str, password: str) -> tuple[str, ...]:
-        client = self._imap_adapter.connect(username, password)
-        return self._imap_adapter.list_folders(client)
+        self._enforce_action("list_folders")
+        try:
+            client = self._imap_adapter.connect(username, password)
+            return self._imap_adapter.list_folders(client)
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
 
     def search_emails(self, username: str, password: str, folder: str, query: str, limit: int = 50) -> tuple[str, ...]:
+        self._enforce_action("search_emails")
         if not folder.strip():
             raise InvalidInputError("folder must not be empty")
         if not query.strip():
@@ -115,60 +131,72 @@ class ReadOnlyMailboxService:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20) -> tuple[EmailSummary, ...]:
+        self._enforce_action("list_emails")
+        if not folder.strip():
+            raise InvalidInputError("folder must not be empty")
         if offset < 0:
             raise InvalidInputError("offset must be >= 0")
         if limit <= 0 or limit > MAX_RESULTS:
             raise InvalidInputError(f"limit must be between 1 and {MAX_RESULTS}")
 
-        client = self._imap_adapter.connect(username, password)
-        status, _ = client.select(folder)
-        if status != "OK":
-            raise NotFoundError(f"Folder not found: {folder}")
+        try:
+            client = self._imap_adapter.connect(username, password)
+            status, _ = client.select(folder)
+            if status != "OK":
+                raise NotFoundError(f"Folder not found: {folder}")
 
-        status, ids = client.uid("search", None, "ALL")
-        if status != "OK":
-            raise BackendUnavailableError("IMAP list failed")
+            status, ids = client.uid("search", None, "ALL")
+            if status != "OK":
+                raise BackendUnavailableError("IMAP list failed")
 
-        all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
-        window = all_ids[offset : offset + limit]
-        out: list[EmailSummary] = []
-        for uid in window:
-            status, data = client.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-            if status != "OK" or not data or data[0] is None:
-                continue
-            raw_header = data[0][1]
-            msg = message_from_bytes(raw_header)
-            out.append(
-                EmailSummary(uid=uid, subject=_decode_header_field(msg, "Subject"), from_address=_decode_header_field(msg, "From"), date=_decode_header_field(msg, "Date"))
-            )
-        return tuple(out)
+            all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
+            window = all_ids[offset : offset + limit]
+            out: list[EmailSummary] = []
+            for uid in window:
+                status, data = client.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+                if status != "OK" or not data or data[0] is None:
+                    continue
+                raw_header = data[0][1]
+                msg = message_from_bytes(raw_header)
+                out.append(
+                    EmailSummary(uid=uid, subject=_decode_header_field(msg, "Subject"), from_address=_decode_header_field(msg, "From"), date=_decode_header_field(msg, "Date"))
+                )
+            return tuple(out)
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
 
     def read_email(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000) -> ReadEmailResult:
+        self._enforce_action("read_email")
+        if not folder.strip():
+            raise InvalidInputError("folder must not be empty")
         if not uid.strip():
             raise InvalidInputError("uid must not be empty")
         if max_chars <= 0:
             raise InvalidInputError("max_chars must be > 0")
 
-        client = self._imap_adapter.connect(username, password)
-        status, _ = client.select(folder)
-        if status != "OK":
-            raise NotFoundError(f"Folder not found: {folder}")
+        try:
+            client = self._imap_adapter.connect(username, password)
+            status, _ = client.select(folder)
+            if status != "OK":
+                raise NotFoundError(f"Folder not found: {folder}")
 
-        status, data = client.uid("fetch", uid, "(RFC822)")
-        if status != "OK" or not data or data[0] is None:
-            raise NotFoundError(f"Email not found: {uid}")
+            status, data = client.uid("fetch", uid, "(RFC822)")
+            if status != "OK" or not data or data[0] is None:
+                raise NotFoundError(f"Email not found: {uid}")
 
-        raw = data[0][1]
-        msg = message_from_bytes(raw)
-        body = _extract_plain_text(msg)
-        if len(body) > max_chars:
-            body = body[:max_chars]
+            raw = data[0][1]
+            msg = message_from_bytes(raw)
+            body = _extract_plain_text(msg)
+            if len(body) > max_chars:
+                body = body[:max_chars]
 
-        return ReadEmailResult(
-            uid=uid,
-            subject=_decode_header_field(msg, "Subject"),
-            from_address=_decode_header_field(msg, "From"),
-            to=_decode_header_field(msg, "To"),
-            date=_decode_header_field(msg, "Date"),
-            body_text=body,
-        )
+            return ReadEmailResult(
+                uid=uid,
+                subject=_decode_header_field(msg, "Subject"),
+                from_address=_decode_header_field(msg, "From"),
+                to=_decode_header_field(msg, "To"),
+                date=_decode_header_field(msg, "Date"),
+                body_text=body,
+            )
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
