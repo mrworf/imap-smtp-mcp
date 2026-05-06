@@ -60,7 +60,6 @@ def _base_env():
         "SMTP_MODE": "ssl",
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
-        "SMTP_FROM_ADDRESS": "alice@example.com",
         "USER_U_IMAP_USERNAME": "imap-u",
         "USER_U_IMAP_PASSWORD": "imap-p",
         "USER_U_SMTP_USERNAME": "smtp-u",
@@ -114,7 +113,7 @@ def test_send_email_flag_blocked(config):
     cfg = load_config()
     service = SendEmailService(SmtpAdapter(cfg, smtp_ssl_factory=lambda *_: FakeSmtpClient()), ImapAdapter(cfg), cfg)
     with pytest.raises(PermissionDisabledError, match="Action disabled: send_email"):
-        service.send_email("u", "p", ("bob@example.com",), "s", "b")
+        service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "s", "b")
 
 
 def test_send_email_append_default_and_disable(config):
@@ -125,7 +124,7 @@ def test_send_email_append_default_and_disable(config):
         ImapAdapter(config, imap_ssl_factory=lambda h, p, c: imap_client),
         config,
     )
-    service.send_email("u", "p", ("bob@example.com",), "Hello", "Body")
+    service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
     assert smtp_client.sent
     assert imap_client.appended
 
@@ -135,7 +134,7 @@ def test_send_email_append_default_and_disable(config):
         ImapAdapter(config, imap_ssl_factory=lambda h, p, c: imap_client2),
         config,
     )
-    service2.send_email("u", "p", ("bob@example.com",), "Hello", "Body", append_to_sent=False)
+    service2.send_email("u", "p", "alice@example.com", ("bob@example.com",), "Hello", "Body", append_to_sent=False)
     assert not imap_client2.appended
 
 
@@ -150,23 +149,15 @@ def test_send_email_append_failure_is_clear(config):
         config,
     )
     with pytest.raises(BackendUnavailableError, match="Email sent but failed to append to sent folder"):
-        service.send_email("u", "p", ("bob@example.com",), "Hello", "Body")
+        service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
 
 
 def test_send_email_invalid_addresses(config):
-    os.environ["SMTP_FROM_ADDRESS"] = "nope"
-    bad_from_cfg = load_config()
-    service = SendEmailService(
-        SmtpAdapter(bad_from_cfg, smtp_ssl_factory=lambda *_: FakeSmtpClient()),
-        ImapAdapter(bad_from_cfg),
-        bad_from_cfg,
-    )
-    with pytest.raises(InvalidInputError, match="invalid from address"):
-        service.send_email("u", "p", ("bob@example.com",), "s", "b")
-
     service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=lambda *_: FakeSmtpClient()), ImapAdapter(config), config)
+    with pytest.raises(InvalidInputError, match="invalid from address"):
+        service.send_email("u", "p", "nope", ("bob@example.com",), "s", "b")
     with pytest.raises(InvalidInputError, match="invalid recipient address"):
-        service.send_email("u", "p", ("bad",), "s", "b")
+        service.send_email("u", "p", "alice@example.com", ("bad",), "s", "b")
 
 
 def test_send_email_smtp_failure_maps_backend_unavailable(config):
@@ -175,17 +166,15 @@ def test_send_email_smtp_failure_maps_backend_unavailable(config):
 
     service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=smtp_ssl_factory), ImapAdapter(config), config)
     with pytest.raises(BackendUnavailableError, match="SMTP backend unavailable"):
-        service.send_email("u", "p", ("bob@example.com",), "s", "b")
+        service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "s", "b")
 
 
 def test_send_email_uses_from_display_name(config):
-    os.environ["SMTP_FROM_DISPLAY_NAME"] = "Alice Sender"
-    cfg = load_config()
     smtp_client = FakeSmtpClient()
     service = SendEmailService(
-        SmtpAdapter(cfg, smtp_ssl_factory=lambda *_: smtp_client),
-        ImapAdapter(cfg, imap_ssl_factory=lambda h, p, c: FakeImapClient()),
-        cfg,
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: FakeImapClient()),
+        config,
     )
-    service.send_email("u", "p", ("bob@example.com",), "Subject", "Body")
+    service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "Subject", "Body", from_display_name="Alice Sender")
     assert smtp_client.sent

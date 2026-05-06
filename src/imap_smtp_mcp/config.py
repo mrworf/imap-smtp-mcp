@@ -37,8 +37,6 @@ class AppConfig:
     smtp: EndpointConfig
     sent_folder: str
     trash_folder: str
-    smtp_from_address: str
-    smtp_from_display_name: str | None
     imap_tls_verify: bool
     imap_tls_ca_bundle_path: str | None
     imap_max_retries: int
@@ -136,8 +134,6 @@ def load_config() -> AppConfig:
         smtp=smtp,
         sent_folder=_require("IMAP_SENT_FOLDER"),
         trash_folder=_require("IMAP_TRASH_FOLDER"),
-        smtp_from_address=_require("SMTP_FROM_ADDRESS"),
-        smtp_from_display_name=os.getenv("SMTP_FROM_DISPLAY_NAME"),
         imap_tls_verify=imap_tls_verify,
         imap_tls_ca_bundle_path=os.getenv("IMAP_TLS_CA_BUNDLE_PATH"),
         imap_max_retries=imap_max_retries,
