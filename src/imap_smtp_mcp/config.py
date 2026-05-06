@@ -115,6 +115,12 @@ def load_config() -> AppConfig:
         "list_emails": _parse_bool("ACTION_LIST_EMAILS", True),
         "read_email": _parse_bool("ACTION_READ_EMAIL", True),
         "send_email": _parse_bool("ACTION_SEND_EMAIL", True),
+        "mark_read_state": _parse_bool("ACTION_MARK_READ_STATE", True),
+        "move_email": _parse_bool("ACTION_MOVE_EMAIL", True),
+        "copy_email": _parse_bool("ACTION_COPY_EMAIL", True),
+        "delete_email_permanent": _parse_bool("ACTION_DELETE_EMAIL_PERMANENT", True),
+        "move_to_trash": _parse_bool("ACTION_MOVE_TO_TRASH", True),
+        "empty_trash": _parse_bool("ACTION_EMPTY_TRASH", True),
     }
 
     users: dict[str, UserCredentials] = {}

@@ -171,7 +171,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 5 — Write mailbox actions with feature-flag enforcement
+## Milestone 5 — Write mailbox actions with feature-flag enforcement ✅ (Completed)
 **Objective:** Implement all state-changing IMAP actions with centralized policy checks.
 
 ### Scope
