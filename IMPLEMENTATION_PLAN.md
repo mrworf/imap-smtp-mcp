@@ -115,7 +115,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 3 — Read-only mailbox features
+## Milestone 3 — Read-only mailbox features ✅ (Completed)
 **Objective:** Deliver all read capabilities through MCP tools.
 
 ### Scope

@@ -123,11 +123,31 @@ def test_invalid_input_and_not_found(base_env):
     with pytest.raises(InvalidInputError, match="query must be single-line"):
         service.search_emails("u", "p", "INBOX", "x\ny")
 
+    with pytest.raises(InvalidInputError, match="folder must be single-line"):
+        service.search_emails("u", "p", "IN\nBOX", "hello")
+
+    with pytest.raises(InvalidInputError, match="uid must be single-line"):
+        service.read_email("u", "p", "INBOX", "1\r")
+
+    with pytest.raises(InvalidInputError, match="limit must be between 1 and 100"):
+        service.search_emails("u", "p", "INBOX", "hello", limit=101)
+
+    with pytest.raises(InvalidInputError, match="offset must be >= 0"):
+        service.list_emails("u", "p", "INBOX", offset=-1)
+
     with pytest.raises(NotFoundError, match="Folder not found"):
         service.list_emails("u", "p", "Archive")
 
     with pytest.raises(NotFoundError, match="Email not found"):
         service.read_email("u", "p", "INBOX", "999")
+
+
+def test_read_email_safe_truncation(base_env):
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "1", max_chars=4)
+    assert read.body_text == "body"
 
 
 def test_action_flag_blocks_before_network(base_env, monkeypatch):
