@@ -7,7 +7,7 @@ from email.message import EmailMessage
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, PermissionDisabledError
-from .imap_adapter import ImapAdapter, ImapAdapterError
+from .imap_adapter import ImapAdapter
 from .smtp_adapter import SmtpAdapter, SmtpAdapterError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -29,6 +29,8 @@ class SendEmailService:
         self,
         smtp_username: str,
         smtp_password: str,
+        imap_username: str,
+        imap_password: str,
         from_address: str,
         to_addresses: tuple[str, ...],
         subject: str,
@@ -63,7 +65,7 @@ class SendEmailService:
 
         if append_to_sent:
             try:
-                imap_client = self._imap_adapter.connect(smtp_username, smtp_password)
+                imap_client = self._imap_adapter.connect(imap_username, imap_password)
                 imap_client.append(self._config.sent_folder, None, None, msg.as_bytes())
                 imap_client.logout()
             except Exception as exc:
