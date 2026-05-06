@@ -139,7 +139,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 4 — SMTP connectivity + send workflow
+## Milestone 4 — SMTP connectivity + send workflow ✅ (Completed)
 **Objective:** Implement secure send-mail path with configurable sender identity.
 
 ### Scope
