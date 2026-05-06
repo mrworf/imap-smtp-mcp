@@ -167,3 +167,14 @@ def test_send_email_smtp_failure_maps_backend_unavailable(config):
     service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=smtp_ssl_factory), ImapAdapter(config), config)
     with pytest.raises(BackendUnavailableError, match="SMTP backend unavailable"):
         service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "s", "b")
+
+
+def test_send_email_uses_from_display_name(config):
+    smtp_client = FakeSmtpClient()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: FakeImapClient()),
+        config,
+    )
+    service.send_email("u", "p", "alice@example.com", ("bob@example.com",), "Subject", "Body", from_display_name="Alice Sender")
+    assert smtp_client.sent
