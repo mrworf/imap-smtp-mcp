@@ -83,7 +83,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 2 — IMAP connectivity layer (SSL/TLS/non-standard ports)
+## Milestone 2 — IMAP connectivity layer (SSL/TLS/non-standard ports) ✅ (Completed)
 **Objective:** Build hardened IMAP client abstraction supporting configured transport variants.
 
 ### Scope
