@@ -201,7 +201,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 6 — Audit logging (per-account + general)
+## Milestone 6 — Audit logging (per-account + general) ✅ (Completed)
 **Objective:** Provide complete, secure, traceable activity logs.
 
 ### Scope

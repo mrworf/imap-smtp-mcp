@@ -42,6 +42,7 @@ class AppConfig:
     imap_max_retries: int
     action_flags: dict[str, bool]
     users: dict[str, UserCredentials]
+    audit_log_dir: str
 
 
 def _require(name: str) -> str:
@@ -145,4 +146,5 @@ def load_config() -> AppConfig:
         imap_max_retries=imap_max_retries,
         action_flags=actions,
         users=users,
+        audit_log_dir=_require("AUDIT_LOG_DIR"),
     )

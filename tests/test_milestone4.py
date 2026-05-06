@@ -60,6 +60,7 @@ def _base_env():
         "SMTP_MODE": "ssl",
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
+        "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
         "USER_U_IMAP_USERNAME": "imap-u",
         "USER_U_IMAP_PASSWORD": "imap-p",
         "USER_U_SMTP_USERNAME": "smtp-u",
