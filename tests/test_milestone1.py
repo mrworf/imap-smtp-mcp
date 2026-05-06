@@ -17,6 +17,7 @@ def base_env(monkeypatch):
         "SMTP_MODE": "starttls",
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
+        "SMTP_FROM_ADDRESS": "sender@example.com",
         "IMAP_TLS_VERIFY": "true",
         "IMAP_MAX_RETRIES": "2",
         "ACTION_LIST_FOLDERS": "true",

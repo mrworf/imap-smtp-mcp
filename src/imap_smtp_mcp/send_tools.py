@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from email.headerregistry import Address
 from email.message import EmailMessage
 
 from .capabilities import CapabilityError, ensure_action_enabled
@@ -28,13 +29,13 @@ class SendEmailService:
         self,
         smtp_username: str,
         smtp_password: str,
-        from_address: str,
         to_addresses: tuple[str, ...],
         subject: str,
         body_text: str,
         append_to_sent: bool = True,
     ) -> None:
         self._enforce_action("send_email")
+        from_address = self._config.smtp_from_address
         if not EMAIL_PATTERN.match(from_address):
             raise InvalidInputError("invalid from address")
         if not to_addresses:
@@ -44,7 +45,10 @@ class SendEmailService:
                 raise InvalidInputError(f"invalid recipient address: {to_addr}")
 
         msg = EmailMessage()
-        msg["From"] = from_address
+        if self._config.smtp_from_display_name:
+            msg["From"] = str(Address(display_name=self._config.smtp_from_display_name, addr_spec=from_address))
+        else:
+            msg["From"] = from_address
         msg["To"] = ", ".join(to_addresses)
         msg["Subject"] = subject
         msg.set_content(body_text)
