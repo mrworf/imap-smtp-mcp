@@ -117,8 +117,8 @@ class ReadOnlyMailboxService:
         if "\r" in query or "\n" in query:
             raise InvalidInputError("query must be single-line")
 
-        client = self._imap_adapter.connect(username, password)
         try:
+            client = self._imap_adapter.connect(username, password)
             status, _ = client.select(folder)
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder}")
