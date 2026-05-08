@@ -1,0 +1,23 @@
+services:
+  imap-smtp-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./env.example
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ./runtime/audit
+        target: /var/lib/imap-smtp-mcp/audit
+      - type: bind
+        source: ./runtime/ca
+        target: /run/secrets
+        read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
