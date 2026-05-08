@@ -34,3 +34,9 @@ Startup fails fast in these scenarios:
 - Missing required environment variables (for example `MCP_ALLOWED_USERS`, endpoint settings, or credentials).
 - Invalid type/format for typed values (`IMAP_PORT`, `SMTP_PORT`, booleans, etc.).
 - Missing writable audit log mount when `AUDIT_LOG_DIR` cannot be created/written.
+
+
+## CI image publishing
+- The unified CI workflow publishes `ghcr.io/<repository_owner>/imap-smtp-mcp` only for `push` events to `main`.
+- Image build/push is skipped unless docker-relevant files changed (`Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `src/**`, `.github/workflows/ci.yml`).
+- Tags include `main`, `sha-<commit>`, and `latest` on the default branch.
