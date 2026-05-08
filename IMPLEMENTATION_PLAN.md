@@ -257,7 +257,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 8 — Comprehensive test completion & quality gates
+## Milestone 8 — Comprehensive test completion & quality gates ✅ (Completed)
 **Objective:** Ensure complete automated coverage including negative/security tests.
 
 ### Scope
@@ -279,7 +279,7 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 
 ---
 
-## Milestone 9 — Security review + release readiness
+## Milestone 9 — Security review + release readiness ✅ (Completed)
 **Objective:** Final validation before rollout.
 
 ### Scope
@@ -313,3 +313,20 @@ Build a Docker-hosted MCP server for ChatGPT that supports secure, audited IMAP/
 - Configurable sender identity and sent-folder archival behavior (default on).
 - Complete audit trail split per-account + general logs.
 - Comprehensive unit tests, including negative tests that fail on policy bypass.
+
+
+## Milestone 10 — Preshared key gate for MCP actions ✅ (Completed)
+**Objective:** Require a server-defined preshared key in addition to MCP user identity before any action is accepted.
+
+### Scope
+1. Add `MCP_PRESHARED_KEY` environment variable support.
+2. If not provided, generate a random runtime-only key and print it to stdout on startup.
+3. Require preshared key validation before user authorization/action checks.
+4. Add positive/negative unit tests for configured and generated key paths.
+
+### Deliverables
+- Auth and config updates to enforce preshared-key gate.
+- Unit tests for key behavior and rejection paths.
+
+### Exit criteria
+- Any request with incorrect/missing key is rejected before action execution.

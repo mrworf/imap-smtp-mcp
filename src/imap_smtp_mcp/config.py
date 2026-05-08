@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass
 from enum import Enum
 
@@ -43,6 +44,7 @@ class AppConfig:
     action_flags: dict[str, bool]
     users: dict[str, UserCredentials]
     audit_log_dir: str
+    preshared_key: str
 
 
 def _require(name: str) -> str:
@@ -93,6 +95,15 @@ def _parse_int(name: str, default: int) -> int:
         raise ConfigError(f"Invalid integer for {name}: {raw}") from exc
     return parsed
 
+
+
+def _load_preshared_key() -> str:
+    configured = os.getenv("MCP_PRESHARED_KEY")
+    if configured:
+        return configured
+    generated = secrets.token_urlsafe(32)
+    print(f"Generated MCP preshared key for this run: {generated}")
+    return generated
 
 def load_config() -> AppConfig:
     allowed_users = tuple(u.strip() for u in _require("MCP_ALLOWED_USERS").split(",") if u.strip())
@@ -147,4 +158,5 @@ def load_config() -> AppConfig:
         action_flags=actions,
         users=users,
         audit_log_dir=_require("AUDIT_LOG_DIR"),
+        preshared_key=_load_preshared_key(),
     )

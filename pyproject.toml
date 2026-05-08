@@ -8,5 +8,27 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501", "I001"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = false
+disable_error_code = ["attr-defined", "assignment", "empty-body", "union-attr", "no-untyped-def", "valid-type"]
