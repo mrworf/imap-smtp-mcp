@@ -13,7 +13,7 @@ class MCPServer:
     def from_env(cls) -> "MCPServer":
         return cls(config=load_config())
 
-    def preflight(self, mcp_user: str, action: str) -> AuthenticatedUser:
-        user = authenticate_user(mcp_user, self.config)
+    def preflight(self, mcp_user: str, preshared_key: str, action: str) -> AuthenticatedUser:
+        user = authenticate_user(mcp_user, preshared_key, self.config)
         ensure_action_enabled(action, self.config)
         return user

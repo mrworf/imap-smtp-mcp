@@ -53,12 +53,12 @@ def test_invalid_port_fails(base_env, monkeypatch):
 def test_unauthorized_user_rejected(base_env):
     config = load_config()
     with pytest.raises(AuthError):
-        authenticate_user("mallory", config)
+        authenticate_user("mallory", config.preshared_key, config)
 
 
 def test_authorized_user_accepted(base_env):
     config = load_config()
-    user = authenticate_user("alice", config)
+    user = authenticate_user("alice", config.preshared_key, config)
     assert user.credentials.imap_username == "alice-imap"
 
 
@@ -72,3 +72,23 @@ def test_disabled_action_rejected_before_network_call(base_env):
     config = load_config()
     with pytest.raises(CapabilityError):
         ensure_action_enabled("send_email", config)
+
+
+def test_invalid_preshared_key_rejected(base_env):
+    config = load_config()
+    with pytest.raises(AuthError, match="Invalid MCP preshared key"):
+        authenticate_user("alice", "wrong-key", config)
+
+
+def test_preshared_key_from_env(base_env, monkeypatch):
+    monkeypatch.setenv("MCP_PRESHARED_KEY", "static-key")
+    config = load_config()
+    assert config.preshared_key == "static-key"
+
+
+def test_preshared_key_generated_when_missing(base_env, monkeypatch, capsys):
+    monkeypatch.delenv("MCP_PRESHARED_KEY", raising=False)
+    config = load_config()
+    assert config.preshared_key
+    out = capsys.readouterr().out
+    assert "Generated MCP preshared key for this run" in out

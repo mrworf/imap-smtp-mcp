@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import imaplib
 from html.parser import HTMLParser
 from dataclasses import dataclass
 from email import message_from_bytes
