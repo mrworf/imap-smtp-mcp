@@ -28,6 +28,7 @@ These instructions apply to the entire repository.
 - Every new feature requires positive and negative tests.
 - Milestone completion requires relevant tests passing locally.
 - HTTP endpoint tests bind a loopback socket; if sandboxed pytest fails with `PermissionError: Operation not permitted` during server startup, rerun the suite with loopback/network permission rather than weakening the endpoint tests.
+- Tests for non-package scripts under `scripts/` must load them by file path or execute them as scripts; do not rely on repository-root importability because CI may run with only `src` on `PYTHONPATH`.
 
 ## Definition of done for changes
 - Code + tests + docs updated together.
