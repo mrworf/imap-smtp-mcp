@@ -51,3 +51,18 @@ def test_local_debug_docs_cover_shell_modes() -> None:
     assert "--mode https" in local_debug
     assert "self-signed certificate" in local_debug
     assert "Local Shell Debugging](local_debug.md)" in deployment
+
+
+def test_readme_describes_project_and_links_docs() -> None:
+    readme_path = ROOT / "README.md"
+    assert readme_path.exists()
+    readme = readme_path.read_text(encoding="utf-8")
+
+    assert "actions/workflows/ci.yml/badge.svg?branch=main" in readme
+    assert "ghcr.io/mrworf/imap-smtp-mcp" in readme
+    assert "Docker image" in readme
+    assert "ChatGPT-compatible remote MCP" in readme
+    assert "encrypted" in readme
+    assert "docs/deployment.md" in readme
+    assert "docs/local_debug.md" in readme
+    assert "docs/manual_mcp_compat_suite.md" in readme
