@@ -125,3 +125,6 @@ docker compose up --build
 ```
 
 The compose file binds the app to `127.0.0.1:8000` so a local reverse proxy can terminate public TLS.
+
+## Shell debugging
+For non-production debugging without Docker, see [Local Shell Debugging](local_debug.md). It covers plain HTTP behind a reverse proxy, binding to a LAN/VPN interface when the proxy runs on another host, and standalone HTTPS with a local self-signed certificate.

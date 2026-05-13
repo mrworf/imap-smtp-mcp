@@ -38,3 +38,16 @@ def test_docs_explain_cookie_secret_usage() -> None:
         assert "OAUTH_COOKIE_SECRET" in text
         assert "CSRF" in text
         assert "in-flight authorization forms" in text
+
+
+def test_local_debug_docs_cover_shell_modes() -> None:
+    local_debug_path = ROOT / "docs/local_debug.md"
+    assert local_debug_path.exists()
+    local_debug = local_debug_path.read_text(encoding="utf-8")
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+
+    assert "reverse proxy runs somewhere else on your LAN or VPN" in local_debug
+    assert "--host 0.0.0.0" in local_debug
+    assert "--mode https" in local_debug
+    assert "self-signed certificate" in local_debug
+    assert "Local Shell Debugging](local_debug.md)" in deployment
