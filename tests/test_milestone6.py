@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from imap_smtp_mcp.audit import AuditEvent, AuditLogger, REDACTED
 
@@ -45,3 +46,40 @@ def test_rotation(tmp_path):
 
     assert (tmp_path / "alice.log").exists()
     assert (tmp_path / "alice.log.1").exists()
+
+
+def test_concurrent_rotation_writes_complete_json_lines(tmp_path):
+    logger = AuditLogger(str(tmp_path), rotate_max_bytes=350, rotate_backup_count=20)
+    errors: list[BaseException] = []
+
+    def worker(worker_id: int) -> None:
+        try:
+            for idx in range(25):
+                logger.log_tool_invocation(
+                    AuditEvent(
+                        request_id=f"worker-{worker_id}-{idx}",
+                        mcp_user="alice",
+                        operation="concurrent_rotation",
+                        success=True,
+                    )
+                )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(idx,)) for idx in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    files = sorted(tmp_path.glob("alice.log*"))
+    assert files
+    for file_path in files:
+        text = file_path.read_text(encoding="utf-8")
+        if not text:
+            continue
+        assert text.endswith("\n")
+        for line in text.splitlines():
+            payload = json.loads(line)
+            assert payload["operation"] == "concurrent_rotation"

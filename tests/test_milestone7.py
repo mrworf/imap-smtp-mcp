@@ -2,13 +2,12 @@ import pytest
 
 from imap_smtp_mcp.audit import AuditEvent, AuditLogger
 from imap_smtp_mcp.config import ConfigError, load_config
-from imap_smtp_mcp.server import MCPServer
+from imap_smtp_mcp.server import build_server
 
 
 @pytest.fixture
 def container_like_env(monkeypatch):
     env = {
-        "MCP_ALLOWED_USERS": "alice,bob",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "993",
         "IMAP_MODE": "ssl",
@@ -31,14 +30,6 @@ def container_like_env(monkeypatch):
         "ACTION_DELETE_EMAIL_PERMANENT": "false",
         "ACTION_MOVE_TO_TRASH": "false",
         "ACTION_EMPTY_TRASH": "false",
-        "USER_ALICE_IMAP_USERNAME": "alice-imap",
-        "USER_ALICE_IMAP_PASSWORD": "imap-pass",
-        "USER_ALICE_SMTP_USERNAME": "alice-smtp",
-        "USER_ALICE_SMTP_PASSWORD": "smtp-pass",
-        "USER_BOB_IMAP_USERNAME": "bob-imap",
-        "USER_BOB_IMAP_PASSWORD": "imap-pass",
-        "USER_BOB_SMTP_USERNAME": "bob-smtp",
-        "USER_BOB_SMTP_PASSWORD": "smtp-pass",
     }
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -46,7 +37,6 @@ def container_like_env(monkeypatch):
 
 def test_container_env_config_parses(container_like_env):
     config = load_config()
-    assert config.allowed_users == ("alice", "bob")
     assert config.imap.port == 993
     assert config.smtp.port == 587
     assert config.action_flags["move_email"] is False
@@ -55,7 +45,7 @@ def test_container_env_config_parses(container_like_env):
 def test_startup_fails_fast_when_env_missing(container_like_env, monkeypatch):
     monkeypatch.delenv("SMTP_HOST", raising=False)
     with pytest.raises(ConfigError, match="Missing required environment variable: SMTP_HOST"):
-        MCPServer.from_env()
+        build_server()
 
 
 def test_audit_logger_fails_when_log_path_is_file(tmp_path):

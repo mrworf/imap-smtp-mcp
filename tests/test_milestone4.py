@@ -51,7 +51,6 @@ class FakeImapClient:
 
 def _base_env():
     return {
-        "MCP_ALLOWED_USERS": "u",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "993",
         "IMAP_MODE": "ssl",
@@ -61,10 +60,6 @@ def _base_env():
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
-        "USER_U_IMAP_USERNAME": "imap-u",
-        "USER_U_IMAP_PASSWORD": "imap-p",
-        "USER_U_SMTP_USERNAME": "smtp-u",
-        "USER_U_SMTP_PASSWORD": "smtp-p",
         "ACTION_SEND_EMAIL": "true",
     }
 

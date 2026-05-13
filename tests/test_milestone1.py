@@ -1,6 +1,5 @@
 import pytest
 
-from imap_smtp_mcp.auth import AuthError, authenticate_user
 from imap_smtp_mcp.capabilities import CapabilityError, ensure_action_enabled
 from imap_smtp_mcp.config import ConfigError, load_config
 
@@ -8,7 +7,6 @@ from imap_smtp_mcp.config import ConfigError, load_config
 @pytest.fixture
 def base_env(monkeypatch):
     env = {
-        "MCP_ALLOWED_USERS": "alice",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "993",
         "IMAP_MODE": "ssl",
@@ -23,10 +21,6 @@ def base_env(monkeypatch):
         "ACTION_LIST_FOLDERS": "true",
         "ACTION_SEARCH_EMAILS": "true",
         "ACTION_SEND_EMAIL": "false",
-        "USER_ALICE_IMAP_USERNAME": "alice-imap",
-        "USER_ALICE_IMAP_PASSWORD": "imap-pass",
-        "USER_ALICE_SMTP_USERNAME": "alice-smtp",
-        "USER_ALICE_SMTP_PASSWORD": "smtp-pass",
     }
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -39,7 +33,7 @@ def test_valid_config_loads(base_env):
 
 
 def test_missing_required_env_fails(monkeypatch):
-    monkeypatch.delenv("MCP_ALLOWED_USERS", raising=False)
+    monkeypatch.delenv("IMAP_HOST", raising=False)
     with pytest.raises(ConfigError):
         load_config()
 
@@ -50,22 +44,10 @@ def test_invalid_port_fails(base_env, monkeypatch):
         load_config()
 
 
-def test_unauthorized_user_rejected(base_env):
+def test_oauth_config_loads_without_static_users(base_env):
     config = load_config()
-    with pytest.raises(AuthError):
-        authenticate_user("mallory", config.preshared_key, config)
-
-
-def test_authorized_user_accepted(base_env):
-    config = load_config()
-    user = authenticate_user("alice", config.preshared_key, config)
-    assert user.credentials.imap_username == "alice-imap"
-
-
-def test_imap_smtp_credentials_separate(base_env):
-    config = load_config()
-    creds = config.users["alice"]
-    assert creds.imap_username != creds.smtp_username
+    assert config.oauth.audience == "http://127.0.0.1:8000"
+    assert config.oauth.store_path.endswith("/oauth.sqlite3")
 
 
 def test_disabled_action_rejected_before_network_call(base_env):
@@ -74,21 +56,7 @@ def test_disabled_action_rejected_before_network_call(base_env):
         ensure_action_enabled("send_email", config)
 
 
-def test_invalid_preshared_key_rejected(base_env):
-    config = load_config()
-    with pytest.raises(AuthError, match="Invalid MCP preshared key"):
-        authenticate_user("alice", "wrong-key", config)
-
-
-def test_preshared_key_from_env(base_env, monkeypatch):
-    monkeypatch.setenv("MCP_PRESHARED_KEY", "static-key")
-    config = load_config()
-    assert config.preshared_key == "static-key"
-
-
-def test_preshared_key_generated_when_missing(base_env, monkeypatch, capsys):
-    monkeypatch.delenv("MCP_PRESHARED_KEY", raising=False)
-    config = load_config()
-    assert config.preshared_key
-    out = capsys.readouterr().out
-    assert "Generated MCP preshared key for this run" in out
+def test_refresh_token_ttl_must_be_positive(base_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_REFRESH_TOKEN_TTL_SECONDS", "0")
+    with pytest.raises(ConfigError, match="OAUTH_REFRESH_TOKEN_TTL_SECONDS must be > 0"):
+        load_config()

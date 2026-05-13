@@ -27,6 +27,7 @@ These instructions apply to the entire repository.
 ## Testing expectations
 - Every new feature requires positive and negative tests.
 - Milestone completion requires relevant tests passing locally.
+- HTTP endpoint tests bind a loopback socket; if sandboxed pytest fails with `PermissionError: Operation not permitted` during server startup, rerun the suite with loopback/network permission rather than weakening the endpoint tests.
 
 ## Definition of done for changes
 - Code + tests + docs updated together.

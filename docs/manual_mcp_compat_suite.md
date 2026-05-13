@@ -1,47 +1,72 @@
-# Manual MCP Compatibility Suite (Real Inbox)
+# Manual MCP Compatibility Suite
 
-## ⚠️ Destructive test warning
-This suite is intentionally destructive. It creates, copies, moves, marks, trashes, permanently deletes, and expunges messages.
+## Destructive test warning
+This suite creates, copies, moves, marks, trashes, permanently deletes, and expunges messages. Run it only against a dedicated test mailbox.
 
-- Never run this against a production mailbox.
-- Use a dedicated test mailbox/account that can send to itself.
-- The script requires an interactive TTY and exact confirmation text before running.
+The script requires an interactive TTY and the exact confirmation phrase before it starts.
 
-## Purpose
-Validate compatibility of your MCP-facing IMAP/SMTP deployment against real servers by exercising every exposed mail API from a CLI flow similar to LLM tool calls.
+## What it now tests
+The suite starts this MCP server on a temporary local port, performs OAuth Dynamic Client Registration, completes an authorization-code + PKCE flow using the supplied IMAP/SMTP credentials, and calls the real `/sse` MCP endpoint.
 
-## Script location
-- `scripts/manual_mcp_compat_suite.py`
+`/sse` is Streamable HTTP-compatible JSON-RPC for ChatGPT. It is not a strict legacy long-lived SSE stream. Native stdio for Claude Desktop is not implemented; use an external HTTP-to-stdio bridge if needed.
 
-## Required setup
-1. Dedicated mailbox email address for tests.
-2. Dedicated test folder (e.g. `MCP_COMPAT_TEST`).
-3. Known trash folder path.
-4. A command that accepts JSON-RPC on stdin and performs MCP `tools/call` against your endpoint.
+It verifies:
 
-## Example run
-```bash
-python scripts/manual_mcp_compat_suite.py \
-  --mcp-command "your-mcp-cli --endpoint http://localhost:3000" \
-  --test-email test-mailbox@example.com \
-  --inbox-folder INBOX \
-  --test-folder MCP_COMPAT_TEST \
-  --trash-folder Trash
-```
-
-## What it verifies
+- OAuth authorization with IMAP login verification
 - `list_folders`
-- `send_email` (self-send)
-- `search_emails` (polling)
+- `send_email`
+- `search_emails`
 - `list_emails`
-- `read_email` (checks marker content and sender)
+- `read_email`
 - `copy_email`
 - `move_email`
-- `mark_read_state` true/false
+- `mark_read_state`
 - `move_to_trash`
 - `delete_email_permanent`
 - `empty_trash`
 
-## Notes
-- This suite is manual-only and not intended for CI automation.
-- If your MCP transport emits extra logs, ensure one JSON response object is still emitted to stdout per call.
+## Required environment
+Set real server details and a dedicated test mailbox:
+
+```bash
+export IMAP_HOST=imap.example.com
+export IMAP_PORT=993
+export IMAP_MODE=ssl
+export SMTP_HOST=smtp.example.com
+export SMTP_PORT=587
+export SMTP_MODE=starttls
+
+export MCP_COMPAT_TEST_EMAIL=test-mailbox@example.com
+export MCP_COMPAT_IMAP_USERNAME=test-mailbox@example.com
+export MCP_COMPAT_IMAP_PASSWORD='imap-password'
+export MCP_COMPAT_SMTP_USERNAME=test-mailbox@example.com
+export MCP_COMPAT_SMTP_PASSWORD='smtp-password'
+export MCP_COMPAT_TEST_FOLDER=MCP_COMPAT_TEST
+export MCP_COMPAT_TRASH_FOLDER=Trash
+```
+
+Optional overrides:
+
+```bash
+export MCP_COMPAT_PORT=8123
+export MCP_COMPAT_PUBLIC_BASE_URL=http://127.0.0.1:8123
+export MCP_COMPAT_SERVER_COMMAND="python -m imap_smtp_mcp.server"
+export MCP_COMPAT_INBOX_FOLDER=INBOX
+export MCP_COMPAT_USE_EXISTING_SERVER=false
+```
+
+## Run
+
+```bash
+python scripts/manual_mcp_compat_suite.py
+```
+
+## Reverse proxy smoke path
+For a proxy smoke test, start the server behind nginx/Caddy/Traefik and set:
+
+```bash
+export MCP_COMPAT_PUBLIC_BASE_URL=https://mail-mcp.example.com
+export MCP_COMPAT_USE_EXISTING_SERVER=true
+```
+
+The production ChatGPT-facing URL must remain HTTPS even when the app listens internally on HTTP.

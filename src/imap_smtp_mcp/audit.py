@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ class AuditLogger:
         self._log_dir = Path(log_dir)
         self._rotate_max_bytes = rotate_max_bytes
         self._rotate_backup_count = rotate_backup_count
+        self._lock = threading.RLock()
         self._log_dir.mkdir(parents=True, exist_ok=True)
 
     def log_tool_invocation(self, event: AuditEvent) -> None:
@@ -41,10 +43,11 @@ class AuditLogger:
 
     def _write_line(self, username: str, line: str) -> None:
         file_path = self._log_dir / f"{username}.log"
-        self._rotate_if_needed(file_path, len(line) + 1)
-        with file_path.open("a", encoding="utf-8") as f:
-            f.write(line)
-            f.write("\n")
+        with self._lock:
+            self._rotate_if_needed(file_path, len(line) + 1)
+            with file_path.open("a", encoding="utf-8") as f:
+                f.write(line)
+                f.write("\n")
 
     def _rotate_if_needed(self, file_path: Path, incoming_bytes: int) -> None:
         if not file_path.exists():

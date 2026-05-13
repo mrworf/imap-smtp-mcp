@@ -4,6 +4,7 @@
 - Inject all secrets through environment variables or a secret manager.
 - Never commit plaintext credentials to repository files.
 - Keep IMAP and SMTP credentials distinct for each MCP user account.
+- Use a long random `OAUTH_COOKIE_SECRET`; it signs the OAuth authorize CSRF cookie and rotating it invalidates only in-flight authorization forms.
 
 ## TLS and certificate handling
 - Use `ssl` or `starttls` modes only.

@@ -38,7 +38,6 @@ class FakeImapClient:
 
 def _env(monkeypatch):
     entries = {
-        "MCP_ALLOWED_USERS": "u",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "993",
         "IMAP_MODE": "ssl",
@@ -48,10 +47,6 @@ def _env(monkeypatch):
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
-        "USER_U_IMAP_USERNAME": "imap-u",
-        "USER_U_IMAP_PASSWORD": "imap-p",
-        "USER_U_SMTP_USERNAME": "smtp-u",
-        "USER_U_SMTP_PASSWORD": "smtp-p",
     }
     for k, v in entries.items():
         monkeypatch.setenv(k, v)

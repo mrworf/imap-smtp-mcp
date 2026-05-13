@@ -67,7 +67,6 @@ class FakeMailboxClient:
 @pytest.fixture
 def base_env(monkeypatch):
     env = {
-        "MCP_ALLOWED_USERS": "alice",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "993",
         "IMAP_MODE": "ssl",
@@ -84,10 +83,6 @@ def base_env(monkeypatch):
         "ACTION_LIST_EMAILS": "true",
         "ACTION_READ_EMAIL": "true",
         "ACTION_SEND_EMAIL": "true",
-        "USER_ALICE_IMAP_USERNAME": "alice-imap",
-        "USER_ALICE_IMAP_PASSWORD": "imap-pass",
-        "USER_ALICE_SMTP_USERNAME": "alice-smtp",
-        "USER_ALICE_SMTP_PASSWORD": "smtp-pass",
     }
     for k, v in env.items():
         monkeypatch.setenv(k, v)

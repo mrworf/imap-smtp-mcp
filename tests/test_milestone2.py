@@ -30,7 +30,6 @@ class FakeImapClient:
 @pytest.fixture
 def base_env(monkeypatch):
     env = {
-        "MCP_ALLOWED_USERS": "alice",
         "IMAP_HOST": "imap.example.com",
         "IMAP_PORT": "1143",
         "IMAP_MODE": "ssl",
@@ -42,10 +41,6 @@ def base_env(monkeypatch):
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
         "IMAP_TLS_VERIFY": "true",
         "IMAP_MAX_RETRIES": "2",
-        "USER_ALICE_IMAP_USERNAME": "alice-imap",
-        "USER_ALICE_IMAP_PASSWORD": "imap-pass",
-        "USER_ALICE_SMTP_USERNAME": "alice-smtp",
-        "USER_ALICE_SMTP_PASSWORD": "smtp-pass",
     }
     for k, v in env.items():
         monkeypatch.setenv(k, v)
