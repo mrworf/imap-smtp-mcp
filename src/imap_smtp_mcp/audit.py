@@ -18,6 +18,7 @@ class AuditEvent:
     success: bool
     failure_class: str | None = None
     mcp_user: str | None = None
+    metadata: dict[str, str | None] | None = None
 
 
 class AuditLogger:
@@ -39,6 +40,8 @@ class AuditLogger:
             "failure_class": event.failure_class,
             "message_content": REDACTED,
         }
+        if event.metadata:
+            payload["metadata"] = event.metadata
         self._write_line(username, json.dumps(payload, separators=(",", ":")))
 
     def _write_line(self, username: str, line: str) -> None:

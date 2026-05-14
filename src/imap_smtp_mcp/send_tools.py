@@ -36,11 +36,14 @@ class SendEmailService:
         subject: str,
         body_text: str,
         from_display_name: str | None = None,
+        reply_to_address: str | None = None,
         append_to_sent: bool = True,
     ) -> None:
         self._enforce_action("send_email")
         if not EMAIL_PATTERN.match(from_address):
             raise InvalidInputError("invalid from address")
+        if reply_to_address and not EMAIL_PATTERN.match(reply_to_address):
+            raise InvalidInputError("invalid reply-to address")
         if not to_addresses:
             raise InvalidInputError("at least one recipient is required")
         for to_addr in to_addresses:
@@ -52,6 +55,8 @@ class SendEmailService:
             msg["From"] = str(Address(display_name=from_display_name, addr_spec=from_address))
         else:
             msg["From"] = from_address
+        if reply_to_address:
+            msg["Reply-To"] = reply_to_address
         msg["To"] = ", ".join(to_addresses)
         msg["Subject"] = subject
         msg.set_content(body_text)

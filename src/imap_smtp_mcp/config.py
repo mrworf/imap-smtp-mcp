@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from ipaddress import ip_network
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 
@@ -56,6 +57,7 @@ class ServerConfig:
 class AppConfig:
     imap: EndpointConfig
     smtp: EndpointConfig
+    smtp_from_domain: str | None
     sent_folder: str
     trash_folder: str
     imap_tls_verify: bool
@@ -126,6 +128,16 @@ def _parse_scopes(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     if not scopes:
         raise ConfigError(f"{name} must include at least one scope")
     return scopes
+
+
+def _parse_optional_domain(name: str) -> str | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    domain = raw.strip().lower()
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", domain):
+        raise ConfigError(f"{name} must be a bare domain like example.com")
+    return domain
 
 
 def _parse_url(name: str, default: str) -> str:
@@ -259,6 +271,7 @@ def load_config() -> AppConfig:
     return AppConfig(
         imap=imap,
         smtp=smtp,
+        smtp_from_domain=_parse_optional_domain("SMTP_FROM_DOMAIN"),
         sent_folder=_require("IMAP_SENT_FOLDER"),
         trash_folder=_require("IMAP_TRASH_FOLDER"),
         imap_tls_verify=imap_tls_verify,

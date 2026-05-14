@@ -44,8 +44,11 @@ export IMAP_MODE=ssl
 export SMTP_HOST=smtp.example.com
 export SMTP_PORT=587
 export SMTP_MODE=starttls
+export SMTP_FROM_DOMAIN=example.com
 
 export MCP_COMPAT_TEST_EMAIL=test-mailbox@example.com
+export MCP_COMPAT_SENDER_DISPLAY_NAME='MCP Compatibility Test'
+export MCP_COMPAT_SENDER_EMAIL=test-mailbox@example.com
 export MCP_COMPAT_IMAP_USERNAME=test-mailbox@example.com
 export MCP_COMPAT_IMAP_PASSWORD='imap-password'
 export MCP_COMPAT_SMTP_USERNAME=test-mailbox@example.com
@@ -79,3 +82,5 @@ export MCP_COMPAT_USE_EXISTING_SERVER=true
 ```
 
 The production ChatGPT-facing URL must remain HTTPS even when the app listens internally on HTTP.
+
+The suite submits the OAuth sender display name and outbound email during authorization. The `send_email` call itself does not include `from_address`; the server must use the captured sender identity and reject spoofing attempts from MCP callers.

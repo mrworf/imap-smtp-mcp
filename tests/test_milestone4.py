@@ -17,6 +17,7 @@ class FakeSmtpClient:
         self.started_tls = False
         self.logged_in = False
         self.sent = False
+        self.sent_message = None
 
     def starttls(self, *, context):
         self.started_tls = True
@@ -28,6 +29,7 @@ class FakeSmtpClient:
 
     def send_message(self, message):
         self.sent = True
+        self.sent_message = message
         return {}
 
     def quit(self):
@@ -235,3 +237,27 @@ def test_send_email_uses_from_display_name(config):
     )
     service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Subject", "Body", from_display_name="Alice Sender")
     assert smtp_client.sent
+    assert smtp_client.sent_message["From"] == "Alice Sender <alice@example.com>"
+    assert "Reply-To" not in smtp_client.sent_message
+
+
+def test_send_email_sets_reply_to_when_requested(config):
+    smtp_client = FakeSmtpClient()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
+        config,
+    )
+    service.send_email(
+        "smtp-u",
+        "smtp-p",
+        "imap-u",
+        "imap-p",
+        "alice@example.com",
+        ("bob@example.com",),
+        "Subject",
+        "Body",
+        from_display_name="Alice Sender",
+        reply_to_address="alice@example.com",
+    )
+    assert smtp_client.sent_message["Reply-To"] == "alice@example.com"

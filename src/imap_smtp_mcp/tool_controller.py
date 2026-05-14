@@ -4,8 +4,9 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, cast
 
 from .audit import AuditEvent, AuditLogger
+from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
-from .errors import BackendUnavailableError, InvalidInputError, MCPError
+from .errors import AuthSessionError, BackendUnavailableError, InvalidInputError, MCPError, PermissionDisabledError
 from .imap_adapter import ImapAdapter
 from .oauth import MailCredentials
 from .read_tools import ReadOnlyMailboxService
@@ -55,13 +56,11 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "send_email": {
         "type": "object",
-        "required": ["from_address", "to_addresses", "subject", "body_text"],
+        "required": ["to_addresses", "subject", "body_text"],
         "properties": {
-            "from_address": {"type": "string"},
             "to_addresses": {"type": "array", "items": {"type": "string"}},
             "subject": {"type": "string"},
             "body_text": {"type": "string"},
-            "from_display_name": {"type": "string"},
             "append_to_sent": {"type": "boolean", "default": True},
         },
     },
@@ -155,7 +154,7 @@ class MailToolController:
         if name not in TOOL_SCHEMAS:
             raise InvalidInputError(f"Unknown tool: {name}")
         try:
-            result = self._dispatch(name, arguments, credentials)
+            result = self._dispatch(name, arguments, credentials, request_id=request_id, subject=subject)
             self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=True))
             return _jsonify(result)
         except MCPError as exc:
@@ -165,7 +164,7 @@ class MailToolController:
             self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=False, failure_class="backend_unavailable"))
             raise BackendUnavailableError("Unexpected tool failure") from exc
 
-    def _dispatch(self, name: str, args: dict[str, Any], c: MailCredentials) -> Any:
+    def _dispatch(self, name: str, args: dict[str, Any], c: MailCredentials, *, request_id: str, subject: str) -> Any:
         if name == "list_folders":
             return self.read_service.list_folders(c.imap_username, c.imap_password)
         if name == "search_emails":
@@ -178,16 +177,25 @@ class MailToolController:
             out["truncated"] = len(result.body_text) >= int(args.get("max_chars", 20000))
             return out
         if name == "send_email":
+            try:
+                ensure_action_enabled("send_email", self.config)
+            except CapabilityError as exc:
+                raise PermissionDisabledError(str(exc)) from exc
+            if not c.sender_email:
+                raise AuthSessionError("Sender identity is missing; reauthorize before sending email")
+            reply_to_override = "reply_to" in args
+            self._audit_sender_override(args, c, request_id=request_id, subject=subject)
             self.send_service.send_email(
                 c.smtp_username,
                 c.smtp_password,
                 c.imap_username,
                 c.imap_password,
-                str(args["from_address"]),
+                c.sender_email,
                 tuple(str(v) for v in args["to_addresses"]),
                 str(args["subject"]),
                 str(args["body_text"]),
-                from_display_name=args.get("from_display_name"),
+                from_display_name=c.sender_display_name,
+                reply_to_address=c.sender_email if reply_to_override else None,
                 append_to_sent=bool(args.get("append_to_sent", True)),
             )
             return {"sent": True}
@@ -219,6 +227,33 @@ class MailToolController:
             self.write_service.delete_folder(c.imap_username, c.imap_password, str(args["folder"]))
             return {"deleted": True}
         raise InvalidInputError(f"Unknown tool: {name}")
+
+    def _audit_sender_override(self, args: dict[str, Any], credentials: MailCredentials, *, request_id: str, subject: str) -> None:
+        requested_keys = {"from_address", "from_display_name", "reply_to"}
+        if not requested_keys.intersection(args):
+            return
+        metadata = {
+            "requested_from_address": _safe_optional(args.get("from_address")),
+            "requested_from_display_name": _safe_optional(args.get("from_display_name")),
+            "requested_reply_to": _safe_optional(args.get("reply_to")),
+            "actual_sender_email": credentials.sender_email,
+            "actual_sender_display_name": credentials.sender_display_name,
+        }
+        self.audit_logger.log_tool_invocation(
+            AuditEvent(
+                request_id=request_id,
+                mcp_user=subject,
+                operation="sender_identity_override",
+                success=True,
+                metadata=metadata,
+            )
+        )
+
+
+def _safe_optional(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _description_for(name: str) -> str:

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import sqlite3
 import time
@@ -16,6 +17,9 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from .config import AppConfig
 from .imap_adapter import ImapAdapter, ImapAdapterError
+
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class OAuthError(PermissionError):
@@ -53,6 +57,8 @@ class MailCredentials:
     imap_password: str
     smtp_username: str
     smtp_password: str
+    sender_display_name: str | None = None
+    sender_email: str | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +191,8 @@ class CredentialVault:
             imap_password=str(payload["imap_password"]),
             smtp_username=str(payload["smtp_username"]),
             smtp_password=str(payload["smtp_password"]),
+            sender_display_name=str(payload["sender_display_name"]) if payload.get("sender_display_name") is not None else None,
+            sender_email=str(payload["sender_email"]) if payload.get("sender_email") is not None else None,
         )
 
 
@@ -453,10 +461,18 @@ class OAuthService:
         imap_password: str,
         smtp_username: str,
         smtp_password: str,
+        sender_display_name: str,
+        sender_email: str,
     ) -> str:
         self.validate_authorize_request(query)
         if not imap_username or not imap_password or not smtp_username or not smtp_password:
             raise OAuthError("access_denied", "IMAP and SMTP credentials are required")
+        normalized_display_name = sender_display_name.strip()
+        normalized_sender_email = sender_email.strip()
+        if not normalized_display_name:
+            raise OAuthError("access_denied", "Sender display name is required")
+        if not normalized_sender_email or not EMAIL_PATTERN.match(normalized_sender_email):
+            raise OAuthError("access_denied", "A valid outbound sender email is required")
         self._imap_verifier(imap_username, imap_password)
         scopes = tuple(query["scope"].split())
         session_id = f"sess-{secrets.token_urlsafe(24)}"
@@ -466,6 +482,8 @@ class OAuthService:
                 imap_password=imap_password,
                 smtp_username=smtp_username,
                 smtp_password=smtp_password,
+                sender_display_name=normalized_display_name,
+                sender_email=normalized_sender_email,
             )
         )
         self.store.save_session(CredentialSession(

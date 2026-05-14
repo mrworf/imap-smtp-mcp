@@ -17,6 +17,7 @@ def test_disabled_action_returns_permission_error() -> None:
     config = AppConfig(
         imap=EndpointConfig(host="imap.example.com", port=993, mode=ProtocolMode.SSL),
         smtp=EndpointConfig(host="smtp.example.com", port=465, mode=ProtocolMode.SSL),
+        smtp_from_domain=None,
         sent_folder="Sent",
         trash_folder="Trash",
         imap_tls_verify=True,

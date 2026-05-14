@@ -30,3 +30,8 @@ class BackendUnavailableError(MCPError):
 class InvalidInputError(MCPError):
     def __init__(self, message: str):
         super().__init__(code="invalid_input", message=message)
+
+
+class AuthSessionError(MCPError):
+    def __init__(self, message: str):
+        super().__init__(code="invalid_session", message=message)

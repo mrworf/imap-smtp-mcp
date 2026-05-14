@@ -38,6 +38,8 @@ def _suite_config() -> SuiteConfig:
         imap_password="imap-pass",
         smtp_username="smtp-user",
         smtp_password="smtp-pass",
+        sender_display_name="MCP Compatibility Test",
+        sender_email="test@example.com",
         inbox_folder="INBOX",
         trash_folder="Trash",
         poll_attempts=1,
@@ -122,6 +124,8 @@ def test_oauth_token_uses_csrf_authorize_form(monkeypatch) -> None:
         calls.append((method, url, {"form": form, "headers": headers}))
         if url.startswith("http://127.0.0.1:8123/oauth/authorize?"):
             assert form["csrf_token"] == "form-token"
+            assert form["sender_display_name"] == "MCP Compatibility Test"
+            assert form["sender_email"] == "test@example.com"
             assert headers == {"Cookie": "oauth_authorize_csrf=cookie-token.sig"}
             return 302, {"location": "https://chatgpt.com/connector/oauth/manual-compat?code=code-1&state=manual"}, ""
         assert url == "http://127.0.0.1:8123/oauth/token"
@@ -262,6 +266,8 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
     assert move_call["uid"] == "move-fresh"
     assert move_call["target_folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
     assert delete_call["folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
+    send_call = next(args for name, args in client.calls if name == "send_email")
+    assert "from_address" not in send_call
     search_calls = [args for name, args in client.calls if name == "search_emails"]
     assert len(search_calls) >= 5
     assert all(json.dumps(args).find("mcp-compat-1234567890-abc123") >= 0 for args in search_calls)

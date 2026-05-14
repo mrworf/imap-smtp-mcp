@@ -142,7 +142,15 @@ def _token(base_url: str) -> str:
     status, headers, _ = _form(
         "POST",
         f"{base_url}/oauth/authorize?{query}",
-        {"imap_username": "imap-user", "imap_password": "imap-pass", "smtp_username": "smtp-user", "smtp_password": "smtp-pass", "csrf_token": csrf_token},
+        {
+            "imap_username": "imap-user",
+            "imap_password": "imap-pass",
+            "smtp_username": "smtp-user",
+            "smtp_password": "smtp-pass",
+            "sender_display_name": "Test Sender",
+            "sender_email": "sender@example.com",
+            "csrf_token": csrf_token,
+        },
         headers={"Cookie": csrf_cookie},
     )
     assert status == 302
@@ -182,6 +190,8 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     assert "SameSite=Lax" in headers["set-cookie"]
     assert "Secure" not in headers["set-cookie"]
     assert _csrf_token_from_html(html)
+    assert 'name="sender_display_name"' in html
+    assert 'name="sender_email"' in html
 
 
 def test_authorize_get_sets_secure_cookie_for_https_public_url(server_env, monkeypatch):
@@ -207,6 +217,28 @@ def test_authorize_get_sets_secure_cookie_for_https_public_url(server_env, monke
         thread.join(timeout=5)
 
 
+def test_authorize_form_suggests_sender_email_from_smtp_domain(server_env, monkeypatch):
+    monkeypatch.setenv("SMTP_FROM_DOMAIN", "example.com")
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda *_: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+        client_id = json.loads(raw)["client_id"]
+        status, _, html = _request("GET", f"{base_url}/oauth/authorize?{_authorize_query(client_id)}")
+        assert status == 200
+        assert 'const smtpFromDomain = "example.com";' in html
+        assert 'username.includes("@")' in html
+        assert '${username}@${smtpFromDomain}' in html
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_authorize_post_requires_matching_csrf_cookie(http_server):
     base_url, _ = http_server
     status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
@@ -216,7 +248,15 @@ def test_authorize_post_requires_matching_csrf_cookie(http_server):
     assert status == 200
     csrf_token = _csrf_token_from_html(html)
     csrf_cookie = headers["set-cookie"].split(";", 1)[0]
-    form = {"imap_username": "imap-user", "imap_password": "imap-pass", "smtp_username": "smtp-user", "smtp_password": "smtp-pass", "csrf_token": csrf_token}
+    form = {
+        "imap_username": "imap-user",
+        "imap_password": "imap-pass",
+        "smtp_username": "smtp-user",
+        "smtp_password": "smtp-pass",
+        "sender_display_name": "Test Sender",
+        "sender_email": "sender@example.com",
+        "csrf_token": csrf_token,
+    }
 
     missing = _form("POST", f"{base_url}/oauth/authorize?{query}", form)
     assert missing[0] == 400
@@ -258,7 +298,17 @@ def test_authorize_post_rejects_pre_body_csrf_before_credential_auth(server_env)
         status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
         client_id = json.loads(raw)["client_id"]
         query = _authorize_query(client_id)
-        form = urlencode({"imap_username": "imap-user", "imap_password": "imap-pass", "smtp_username": "smtp-user", "smtp_password": "smtp-pass", "csrf_token": "missing"})
+        form = urlencode(
+            {
+                "imap_username": "imap-user",
+                "imap_password": "imap-pass",
+                "smtp_username": "smtp-user",
+                "smtp_password": "smtp-pass",
+                "sender_display_name": "Test Sender",
+                "sender_email": "sender@example.com",
+                "csrf_token": "missing",
+            }
+        )
         status, _, raw = _raw(
             "POST",
             f"{base_url}/oauth/authorize?{query}",

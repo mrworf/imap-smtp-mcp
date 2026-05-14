@@ -40,6 +40,8 @@ class SuiteConfig:
     imap_password: str
     smtp_username: str
     smtp_password: str
+    sender_display_name: str
+    sender_email: str
     inbox_folder: str
     trash_folder: str
     poll_attempts: int
@@ -167,6 +169,8 @@ def load_suite_config() -> SuiteConfig:
         imap_password=_env_required("MCP_COMPAT_IMAP_PASSWORD"),
         smtp_username=_env_required("MCP_COMPAT_SMTP_USERNAME"),
         smtp_password=_env_required("MCP_COMPAT_SMTP_PASSWORD"),
+        sender_display_name=os.getenv("MCP_COMPAT_SENDER_DISPLAY_NAME", "MCP Compatibility Test"),
+        sender_email=os.getenv("MCP_COMPAT_SENDER_EMAIL", _env_required("MCP_COMPAT_TEST_EMAIL")),
         inbox_folder=os.getenv("MCP_COMPAT_INBOX_FOLDER", "INBOX"),
         trash_folder=_env_required("MCP_COMPAT_TRASH_FOLDER"),
         poll_attempts=_env_int("MCP_COMPAT_POLL_ATTEMPTS", 10),
@@ -353,6 +357,8 @@ def _oauth_token(config: SuiteConfig) -> str:
             "imap_password": config.imap_password,
             "smtp_username": config.smtp_username,
             "smtp_password": config.smtp_password,
+            "sender_display_name": config.sender_display_name,
+            "sender_email": config.sender_email,
             "csrf_token": csrf_token,
         },
         headers={"Cookie": csrf_cookie},
@@ -440,7 +446,7 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
 
         print("[4/15] send_email (self-addressed)")
         body = f"manual compatibility test marker: {marker}"
-        client.call_tool("send_email", {"from_address": args.test_email, "to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
+        client.call_tool("send_email", {"to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
 
         print("[5/15] search_emails")
         found_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="initial inbox search", limit=10)
@@ -454,8 +460,8 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
         if marker not in json.dumps(read_result):
             raise RuntimeError("Read-email payload did not contain expected marker text.")
         sender = _extract_email_address(str(read_result.get("from_address", ""))) if isinstance(read_result, dict) else ""
-        if sender and sender.lower() != args.test_email.lower():
-            raise RuntimeError(f"Unexpected sender address: {sender} != {args.test_email}")
+        if sender and sender.lower() != args.sender_email.lower():
+            raise RuntimeError(f"Unexpected sender address: {sender} != {args.sender_email}")
 
         print("[8/15] copy_email")
         copy_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="copy_email", limit=10)

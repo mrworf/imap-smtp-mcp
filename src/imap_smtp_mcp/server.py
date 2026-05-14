@@ -128,7 +128,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         csrf_token = secrets.token_urlsafe(32)
         cookie_value = _sign_authorize_cookie(self.server.config, csrf_token, raw_query)
         self._send_html(
-            _login_form(raw_query, self.server.config.oauth.required_scopes, csrf_token),
+            _login_form(raw_query, self.server.config.oauth.required_scopes, csrf_token, self.server.config.smtp_from_domain),
             headers={"Set-Cookie": _build_authorize_cookie(self.server.config, cookie_value)},
         )
 
@@ -145,6 +145,8 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
                 imap_password=form.get("imap_password", ""),
                 smtp_username=form.get("smtp_username", ""),
                 smtp_password=form.get("smtp_password", ""),
+                sender_display_name=form.get("sender_display_name", ""),
+                sender_email=form.get("sender_email", ""),
             )
             self._audit_system("oauth_authorize", True)
             self.send_response(HTTPStatus.FOUND)
@@ -295,8 +297,9 @@ def _single_value_query(raw: str) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
-def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str) -> str:
+def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_from_domain: str | None = None) -> str:
     action = f"/oauth/authorize?{html.escape(raw_query, quote=True)}"
+    domain_json = json.dumps(smtp_from_domain or "")
     return f"""<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Authorize Mail MCP</title></head>
@@ -310,8 +313,32 @@ def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str) -> str
 <label>IMAP password <input name="imap_password" type="password" autocomplete="current-password" required></label><br>
 <label>SMTP username <input name="smtp_username" required></label><br>
 <label>SMTP password <input name="smtp_password" type="password" required></label><br>
+<label>Sender display name <input name="sender_display_name" autocomplete="name" required></label><br>
+<label>Outbound sender email <input name="sender_email" type="email" autocomplete="email" required></label><br>
 <button type="submit">Authorize</button>
 </form>
+<script>
+const smtpFromDomain = {domain_json};
+const smtpUsername = document.querySelector('input[name="smtp_username"]');
+const senderEmail = document.querySelector('input[name="sender_email"]');
+let senderEmailEdited = false;
+senderEmail.addEventListener("input", () => {{
+  senderEmailEdited = true;
+}});
+smtpUsername.addEventListener("input", () => {{
+  if (senderEmailEdited) {{
+    return;
+  }}
+  const username = smtpUsername.value.trim();
+  if (!username) {{
+    senderEmail.value = "";
+  }} else if (username.includes("@")) {{
+    senderEmail.value = username;
+  }} else if (smtpFromDomain) {{
+    senderEmail.value = `${{username}}@${{smtpFromDomain}}`;
+  }}
+}});
+</script>
 </main>
 </body>
 </html>"""

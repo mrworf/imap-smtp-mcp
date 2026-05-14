@@ -39,6 +39,7 @@ def test_env_example_uses_oauth_only_persistent_config() -> None:
     assert "MCP_TLS_CERT_FILE=" in env_example
     assert "MCP_TLS_KEY_FILE=" in env_example
     assert "SMTP_TIMEOUT_SECONDS=30" in env_example
+    assert "SMTP_FROM_DOMAIN=example.com" in env_example
     assert "ACTION_CREATE_FOLDER=false" in env_example
     assert "ACTION_RENAME_FOLDER=false" in env_example
     assert "ACTION_DELETE_FOLDER=false" in env_example
@@ -92,3 +93,15 @@ def test_security_docs_name_folder_action_flags() -> None:
     assert "ACTION_CREATE_FOLDER" in security
     assert "ACTION_RENAME_FOLDER" in security
     assert "ACTION_DELETE_FOLDER" in security
+
+
+def test_docs_describe_captured_sender_identity() -> None:
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    manual = (ROOT / "docs/manual_mcp_compat_suite.md").read_text(encoding="utf-8")
+    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
+
+    for text in (deployment, manual, security):
+        assert "SMTP_FROM_DOMAIN" in text
+    assert "cannot choose `From` or `Reply-To`" in deployment
+    assert "sender_identity_override" in security
+    assert "does not include `from_address`" in manual

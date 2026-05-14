@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import time
 
 import pytest
@@ -90,6 +91,8 @@ def test_authorization_code_and_token_flow_preserves_separate_credentials(oauth_
         imap_password="imap-secret",
         smtp_username="smtp-user",
         smtp_password="smtp-secret",
+        sender_display_name="Alice Sender",
+        sender_email="alice@example.com",
     )
     assert redirect.startswith("https://chatgpt.com/connector/oauth/cb?")
     code = redirect.split("code=", 1)[1].split("&", 1)[0]
@@ -113,6 +116,43 @@ def test_authorization_code_and_token_flow_preserves_separate_credentials(oauth_
     assert credentials.smtp_username == "smtp-user"
     assert credentials.imap_password == "imap-secret"
     assert credentials.smtp_password == "smtp-secret"
+    assert credentials.sender_display_name == "Alice Sender"
+    assert credentials.sender_email == "alice@example.com"
+
+
+def test_authorize_requires_sender_identity(oauth_env):
+    service = _service(load_config())
+    client = service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+    query = {
+        "response_type": "code",
+        "client_id": str(client["client_id"]),
+        "redirect_uri": "https://chatgpt.com/connector/oauth/cb",
+        "code_challenge": _challenge("verifier"),
+        "code_challenge_method": "S256",
+        "scope": "mail:read mail:send",
+        "resource": "https://mcp.example.com",
+    }
+
+    with pytest.raises(OAuthError, match="Sender display name is required"):
+        service.authorize_with_credentials(
+            query,
+            imap_username="imap-user",
+            imap_password="imap-secret",
+            smtp_username="smtp-user",
+            smtp_password="smtp-secret",
+            sender_display_name=" ",
+            sender_email="alice@example.com",
+        )
+    with pytest.raises(OAuthError, match="valid outbound sender email"):
+        service.authorize_with_credentials(
+            query,
+            imap_username="imap-user",
+            imap_password="imap-secret",
+            smtp_username="smtp-user",
+            smtp_password="smtp-secret",
+            sender_display_name="Alice Sender",
+            sender_email="not-an-email",
+        )
 
 
 def test_oauth_state_survives_service_restart(oauth_env):
@@ -129,7 +169,15 @@ def test_oauth_state_survives_service_restart(oauth_env):
         "scope": "mail:read mail:send",
         "resource": "https://mcp.example.com",
     }
-    redirect = service.authorize_with_credentials(query, imap_username="imap-user", imap_password="imap-secret", smtp_username="smtp-user", smtp_password="smtp-secret")
+    redirect = service.authorize_with_credentials(
+        query,
+        imap_username="imap-user",
+        imap_password="imap-secret",
+        smtp_username="smtp-user",
+        smtp_password="smtp-secret",
+        sender_display_name="Alice Sender",
+        sender_email="alice@example.com",
+    )
     code = redirect.split("code=", 1)[1].split("&", 1)[0]
 
     restarted = _service(config)
@@ -145,6 +193,7 @@ def test_oauth_state_survives_service_restart(oauth_env):
     claims, credentials = restarted.authenticate_bearer(f"Bearer {token_response['access_token']}", required_scopes=("mail:read",))
     assert claims.subject == "imap-user"
     assert credentials.smtp_username == "smtp-user"
+    assert credentials.sender_email == "alice@example.com"
 
 
 def test_refresh_token_rotation_and_storage_redaction(oauth_env):
@@ -161,7 +210,15 @@ def test_refresh_token_rotation_and_storage_redaction(oauth_env):
         "scope": "mail:read mail:send",
         "resource": "https://mcp.example.com",
     }
-    redirect = service.authorize_with_credentials(query, imap_username="imap-user", imap_password="imap-secret", smtp_username="smtp-user", smtp_password="smtp-secret")
+    redirect = service.authorize_with_credentials(
+        query,
+        imap_username="imap-user",
+        imap_password="imap-secret",
+        smtp_username="smtp-user",
+        smtp_password="smtp-secret",
+        sender_display_name="Alice Sender",
+        sender_email="alice@example.com",
+    )
     code = redirect.split("code=", 1)[1].split("&", 1)[0]
     token_response = service.exchange_code(
         {
@@ -196,7 +253,15 @@ def test_token_exchange_rejects_wrong_pkce_and_reuse(oauth_env):
         "scope": "mail:read",
         "resource": "https://mcp.example.com",
     }
-    redirect = service.authorize_with_credentials(query, imap_username="u", imap_password="p", smtp_username="s", smtp_password="sp")
+    redirect = service.authorize_with_credentials(
+        query,
+        imap_username="u",
+        imap_password="p",
+        smtp_username="s",
+        smtp_password="sp",
+        sender_display_name="Sender",
+        sender_email="sender@example.com",
+    )
     code = redirect.split("code=", 1)[1].split("&", 1)[0]
     payload = {
         "grant_type": "authorization_code",
@@ -243,6 +308,15 @@ def test_proxy_config_and_public_url_validation(oauth_env, monkeypatch):
         load_config()
 
 
+def test_smtp_from_domain_validation(oauth_env, monkeypatch):
+    monkeypatch.setenv("SMTP_FROM_DOMAIN", "Example.COM")
+    assert load_config().smtp_from_domain == "example.com"
+
+    monkeypatch.setenv("SMTP_FROM_DOMAIN", "https://example.com")
+    with pytest.raises(ConfigError, match="SMTP_FROM_DOMAIN must be a bare domain"):
+        load_config()
+
+
 def test_invalid_oauth_ttl_rejected(oauth_env, monkeypatch):
     monkeypatch.setenv("OAUTH_ACCESS_TOKEN_TTL_SECONDS", "0")
     with pytest.raises(ConfigError, match="OAUTH_ACCESS_TOKEN_TTL_SECONDS must be > 0"):
@@ -264,9 +338,28 @@ def test_token_payload_does_not_contain_passwords(oauth_env):
             imap_password="imap-password",
             smtp_username="s",
             smtp_password="smtp-password",
+            sender_display_name="Sender",
+            sender_email="sender@example.com",
         )
     )
     assert "imap-password" not in encrypted
     assert "smtp-password" not in encrypted
     decoded = vault.decrypt(encrypted)
     assert decoded.imap_password == "imap-password"
+    assert decoded.sender_email == "sender@example.com"
+
+
+def test_credential_vault_decrypts_old_sessions_without_sender_identity(oauth_env):
+    vault = CredentialVault(load_config().oauth.encryption_key)
+    legacy_payload = {
+        "imap_username": "u",
+        "imap_password": "imap-password",
+        "smtp_username": "s",
+        "smtp_password": "smtp-password",
+    }
+    encrypted = vault._fernet.encrypt(json.dumps(legacy_payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
+
+    decoded = vault.decrypt(encrypted)
+
+    assert decoded.sender_display_name is None
+    assert decoded.sender_email is None
