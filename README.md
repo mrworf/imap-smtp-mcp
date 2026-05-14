@@ -14,6 +14,7 @@ The intended production shape is a Docker container behind a public HTTPS revers
 - Separate IMAP and SMTP credentials per OAuth session.
 - SQLite persistence for OAuth clients, sessions, authorization codes, and refresh tokens.
 - Encrypted credential storage and audit logging with secret redaction.
+- IMAP folder lifecycle tools for creating, renaming, and deleting folders, guarded by write scopes and disabled-by-default action flags.
 - Docker deployment with healthchecks and reverse-proxy support.
 
 ## Documentation

@@ -80,6 +80,15 @@ def test_readme_describes_project_and_links_docs() -> None:
     assert "Docker image" in readme
     assert "ChatGPT-compatible remote MCP" in readme
     assert "encrypted" in readme
+    assert "creating, renaming, and deleting folders" in readme
     assert "docs/deployment.md" in readme
     assert "docs/local_debug.md" in readme
     assert "docs/manual_mcp_compat_suite.md" in readme
+
+
+def test_security_docs_name_folder_action_flags() -> None:
+    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
+
+    assert "ACTION_CREATE_FOLDER" in security
+    assert "ACTION_RENAME_FOLDER" in security
+    assert "ACTION_DELETE_FOLDER" in security
