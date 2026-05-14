@@ -194,6 +194,31 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     assert 'name="sender_email"' in html
 
 
+def test_authorize_form_identifies_app_and_groups_credentials(http_server):
+    base_url, _ = http_server
+    status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+    client_id = json.loads(raw)["client_id"]
+    status, _, html = _request("GET", f"{base_url}/oauth/authorize?{_authorize_query(client_id)}")
+
+    assert status == 200
+    assert "<h1" in html
+    assert "Authorize IMAP/SMTP MCP" in html
+    assert "lets ChatGPT use your configured IMAP and SMTP account" in html
+    assert 'href="https://github.com/mrworf/imap-smtp-mcp"' in html
+    assert 'target="_blank" rel="noopener noreferrer"' in html
+    assert "<legend>IMAP credentials</legend>" in html
+    assert "<legend>SMTP credentials</legend>" in html
+    assert "<legend>Sender identity</legend>" in html
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in html
+    assert 'input id="imap_username" name="imap_username"' in html
+    assert 'input id="imap_password" name="imap_password" type="password"' in html
+    assert 'input id="smtp_username" name="smtp_username"' in html
+    assert 'input id="smtp_password" name="smtp_password" type="password"' in html
+    assert "https://cdn" not in html
+    assert "bootstrap" not in html.lower()
+    assert "tailwind" not in html.lower()
+
+
 def test_authorize_get_sets_secure_cookie_for_https_public_url(server_env, monkeypatch):
     monkeypatch.setenv("MCP_PUBLIC_BASE_URL", "https://mcp.example.com")
     monkeypatch.setenv("OAUTH_ISSUER", "https://mcp.example.com")

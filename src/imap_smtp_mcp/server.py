@@ -300,25 +300,211 @@ def _single_value_query(raw: str) -> dict[str, str]:
 def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_from_domain: str | None = None, debug_unredacted_logs: bool = False) -> str:
     action = f"/oauth/authorize?{html.escape(raw_query, quote=True)}"
     domain_json = json.dumps(smtp_from_domain or "")
-    debug_warning = "<p><strong>Debug logging is enabled.</strong> Email subjects, bodies, tool arguments, and tool results may be written to backend audit logs. Do not use this mode for production mailboxes.</p>" if debug_unredacted_logs else ""
+    debug_warning = (
+        '<div class="warning" role="alert"><strong>Debug logging is enabled.</strong> Email subjects, bodies, tool arguments, and tool results may be written to backend audit logs. Do not use this mode for production mailboxes.</div>'
+        if debug_unredacted_logs
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Authorize Mail MCP</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize IMAP/SMTP MCP</title>
+<style>
+:root {{
+  color-scheme: light;
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --text: #172033;
+  --muted: #5e6a7d;
+  --border: #d7deea;
+  --accent: #2563eb;
+  --accent-dark: #1d4ed8;
+  --warning-bg: #fff7ed;
+  --warning-border: #fdba74;
+}}
+* {{
+  box-sizing: border-box;
+}}
+body {{
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}}
+main {{
+  width: min(880px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0;
+}}
+.panel {{
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 45px rgba(23, 32, 51, 0.08);
+  overflow: hidden;
+}}
+.intro {{
+  padding: 32px 32px 24px;
+  border-bottom: 1px solid var(--border);
+}}
+h1 {{
+  margin: 0 0 12px;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  line-height: 1.1;
+}}
+p {{
+  margin: 0 0 16px;
+}}
+.description {{
+  max-width: 68ch;
+  color: var(--muted);
+}}
+.repo-link {{
+  color: var(--accent);
+  font-weight: 650;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}}
+.scope-line {{
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--muted);
+}}
+.scope-line strong {{
+  color: var(--text);
+}}
+.warning {{
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: #7c2d12;
+}}
+form {{
+  padding: 28px 32px 32px;
+}}
+fieldset {{
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+}}
+legend {{
+  margin-bottom: 12px;
+  font-weight: 750;
+  font-size: 1rem;
+}}
+.field-grid {{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}}
+label {{
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.94rem;
+  font-weight: 650;
+}}
+input {{
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #aeb8c8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text);
+  font: inherit;
+  background: #fff;
+}}
+input:focus {{
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}}
+.actions {{
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}}
+button {{
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 20px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}}
+button:hover {{
+  background: var(--accent-dark);
+}}
+@media (max-width: 680px) {{
+  main {{
+    width: min(100% - 20px, 880px);
+    padding: 10px 0;
+  }}
+  .intro,
+  form {{
+    padding-left: 18px;
+    padding-right: 18px;
+  }}
+  .field-grid {{
+    grid-template-columns: 1fr;
+  }}
+  .actions {{
+    justify-content: stretch;
+  }}
+  button {{
+    width: 100%;
+  }}
+}}
+</style>
+</head>
 <body>
 <main>
-<h1>Authorize Mail MCP</h1>
-<p>ChatGPT is requesting: {html.escape(", ".join(scopes))}</p>
+<section class="panel" aria-labelledby="authorize-title">
+<div class="intro">
+<h1 id="authorize-title">Authorize IMAP/SMTP MCP</h1>
+<p class="description">IMAP/SMTP MCP is a self-hosted mail connector that lets ChatGPT use your configured IMAP and SMTP account to list folders, search and read messages, send mail, and manage mailbox items according to the scopes you grant.</p>
+<p><a class="repo-link" href="https://github.com/mrworf/imap-smtp-mcp" target="_blank" rel="noopener noreferrer">Read more on GitHub</a></p>
+<p class="scope-line"><strong>ChatGPT is requesting:</strong> <span>{html.escape(", ".join(scopes))}</span></p>
 {debug_warning}
+</div>
 <form method="post" action="{action}">
 <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}">
-<label>IMAP username <input name="imap_username" autocomplete="username" required></label><br>
-<label>IMAP password <input name="imap_password" type="password" autocomplete="current-password" required></label><br>
-<label>SMTP username <input name="smtp_username" required></label><br>
-<label>SMTP password <input name="smtp_password" type="password" required></label><br>
-<label>Sender display name <input name="sender_display_name" autocomplete="name" required></label><br>
-<label>Outbound sender email <input name="sender_email" type="email" autocomplete="email" required></label><br>
-<button type="submit">Authorize</button>
+<fieldset>
+<legend>IMAP credentials</legend>
+<div class="field-grid">
+<label for="imap_username">IMAP username <input id="imap_username" name="imap_username" autocomplete="username" required></label>
+<label for="imap_password">IMAP password <input id="imap_password" name="imap_password" type="password" autocomplete="current-password" required></label>
+</div>
+</fieldset>
+<fieldset>
+<legend>SMTP credentials</legend>
+<div class="field-grid">
+<label for="smtp_username">SMTP username <input id="smtp_username" name="smtp_username" autocomplete="username" required></label>
+<label for="smtp_password">SMTP password <input id="smtp_password" name="smtp_password" type="password" autocomplete="current-password" required></label>
+</div>
+</fieldset>
+<fieldset>
+<legend>Sender identity</legend>
+<div class="field-grid">
+<label for="sender_display_name">Sender display name <input id="sender_display_name" name="sender_display_name" autocomplete="name" required></label>
+<label for="sender_email">Outbound sender email <input id="sender_email" name="sender_email" type="email" autocomplete="email" required></label>
+</div>
+</fieldset>
+<div class="actions"><button type="submit">Authorize</button></div>
 </form>
+</section>
 <script>
 const smtpFromDomain = {domain_json};
 const smtpUsername = document.querySelector('input[name="smtp_username"]');
