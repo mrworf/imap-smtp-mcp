@@ -166,11 +166,11 @@ class MailToolController:
 
     def _dispatch(self, name: str, args: dict[str, Any], c: MailCredentials, *, request_id: str, subject: str) -> Any:
         if name == "list_folders":
-            return self.read_service.list_folders(c.imap_username, c.imap_password)
+            return {"folders": self.read_service.list_folders(c.imap_username, c.imap_password)}
         if name == "search_emails":
             return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, str(args["folder"]), str(args["query"]), int(args.get("limit", 50)))}
         if name == "list_emails":
-            return self.read_service.list_emails(c.imap_username, c.imap_password, str(args["folder"]), int(args.get("offset", 0)), int(args.get("limit", 20)))
+            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, str(args["folder"]), int(args.get("offset", 0)), int(args.get("limit", 20)))}
         if name == "read_email":
             result = self.read_service.read_email(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), int(args.get("max_chars", 20000)))
             out = _jsonify(result)

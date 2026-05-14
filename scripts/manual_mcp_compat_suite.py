@@ -109,6 +109,8 @@ def _extract_email_address(value: str) -> str:
 
 
 def _require_folders(folders: Any, required: tuple[str, ...]) -> None:
+    if isinstance(folders, dict) and isinstance(folders.get("folders"), list):
+        folders = folders["folders"]
     available = set(str(folder) for folder in folders) if isinstance(folders, list) else set()
     missing = [folder for folder in required if folder not in available]
     if missing:
@@ -453,7 +455,8 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
 
         print("[6/15] list_emails")
         listed = client.call_tool("list_emails", {"folder": args.inbox_folder, "offset": 0, "limit": 50})
-        print(f"  listed response length: {len(listed) if isinstance(listed, list) else 'n/a'}")
+        listed_items = listed.get("emails", []) if isinstance(listed, dict) else listed
+        print(f"  listed response length: {len(listed_items) if isinstance(listed_items, list) else 'n/a'}")
 
         print("[7/15] read_email")
         read_result = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": found_uid, "max_chars": 50000})

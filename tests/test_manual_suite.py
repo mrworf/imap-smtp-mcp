@@ -175,13 +175,13 @@ class FakeManualClient:
     def call_tool(self, name: str, arguments: dict[str, object]):
         self.calls.append((name, arguments))
         if name == "list_folders":
-            return self.folders
+            return {"folders": self.folders}
         if name == "send_email":
             return {"sent": True}
         if name == "search_emails":
             return {"uids": self.search_results.pop(0)}
         if name == "list_emails":
-            return [{"uid": "10"}]
+            return {"emails": [{"uid": "10"}]}
         if name == "read_email":
             return {"from_address": "test@example.com", "body_text": f"manual compatibility test marker: {arguments.get('marker', '')}"}
         if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
@@ -235,13 +235,13 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
         def call_tool(self, name: str, arguments: dict[str, object]):
             self.calls.append((name, arguments))
             if name == "list_folders":
-                return self.folders
+                return {"folders": self.folders}
             if name == "send_email":
                 return {"sent": True}
             if name == "search_emails":
                 return {"uids": self.search_results.pop(0)}
             if name == "list_emails":
-                return [{"uid": "initial"}]
+                return {"emails": [{"uid": "initial"}]}
             if name == "read_email":
                 return {"from_address": "test@example.com", "body_text": marker}
             if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
@@ -282,7 +282,7 @@ def test_run_mail_flow_cleans_up_created_folder_on_failure(monkeypatch) -> None:
         def call_tool(self, name: str, arguments: dict[str, object]):
             self.calls.append((name, arguments))
             if name == "list_folders":
-                return self.folders
+                return {"folders": self.folders}
             if name == "create_folder":
                 return {"created": True}
             if name == "rename_folder":

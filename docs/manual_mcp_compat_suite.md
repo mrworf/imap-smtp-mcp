@@ -14,6 +14,8 @@ When the suite starts the server from a source checkout, it prepends the reposit
 
 The suite verifies that the configured inbox and trash folder exist before sending mail. It creates a unique temporary test folder, renames it once, uses it for copy/move/mark/trash operations, and deletes it before finishing. During the destructive flow it re-searches for the unique per-run marker before copy and move operations because live IMAP mailbox UID visibility can change between operations.
 
+Read/list tool responses are object-shaped for ChatGPT compatibility; for example, `list_folders` returns a `folders` array and `list_emails` returns an `emails` array.
+
 `/sse` is Streamable HTTP-compatible JSON-RPC for ChatGPT. It is not a strict legacy long-lived SSE stream. Native stdio for Claude Desktop is not implemented; use an external HTTP-to-stdio bridge if needed.
 
 It verifies:

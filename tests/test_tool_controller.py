@@ -42,6 +42,14 @@ class FakeWriteService:
         self.calls.append(("delete_folder", (username, password, folder)))
 
 
+class FakeReadService:
+    def list_folders(self, username: str, password: str) -> tuple[str, ...]:
+        return ("INBOX", "Sent")
+
+    def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20):
+        return ({"uid": "1", "subject": "Hello"},)
+
+
 def _credentials() -> MailCredentials:
     return MailCredentials(
         imap_username="imap-user",
@@ -115,6 +123,21 @@ def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:
     assert "from_address" not in schema["properties"]
     assert "from_display_name" not in schema["properties"]
     assert "reply_to" not in schema["properties"]
+
+
+def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    controller.read_service = FakeReadService()
+
+    assert controller.call_tool("list_folders", {}, _credentials(), request_id="folders-1", subject="subject") == {"folders": ["INBOX", "Sent"]}
+    assert controller.call_tool(
+        "list_emails",
+        {"folder": "INBOX", "offset": 0, "limit": 10},
+        _credentials(),
+        request_id="emails-1",
+        subject="subject",
+    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
 
 
 def test_folder_tool_dispatch_uses_session_credentials(controller_env, tmp_path) -> None:
