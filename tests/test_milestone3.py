@@ -161,7 +161,9 @@ def test_backend_error_maps_to_stable_mcp_error(base_env):
         raise OSError("socket error")
 
     service = ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=failing_ssl_factory), config=config)
-    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable"):
+    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable") as list_exc:
         service.list_folders("u", "p")
-    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable"):
+    assert list_exc.value.metadata == {"imap_phase": "connect"}
+    with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable") as search_exc:
         service.search_emails("u", "p", "INBOX", "hello")
+    assert search_exc.value.metadata == {"imap_phase": "connect", "folder": "INBOX", "query": "hello", "limit": "50"}

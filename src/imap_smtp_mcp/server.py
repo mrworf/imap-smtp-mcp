@@ -55,7 +55,7 @@ class MCPHTTPServer(ThreadingHTTPServer):
         self.startup_error = startup_error
         self.oauth_service = oauth_service or OAuthService(config)
         self.tool_controller = tool_controller or MailToolController(config)
-        self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir)
+        self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir, debug_unredacted_logs=config.debug_unredacted_logs)
 
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
@@ -128,7 +128,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         csrf_token = secrets.token_urlsafe(32)
         cookie_value = _sign_authorize_cookie(self.server.config, csrf_token, raw_query)
         self._send_html(
-            _login_form(raw_query, self.server.config.oauth.required_scopes, csrf_token, self.server.config.smtp_from_domain),
+            _login_form(raw_query, self.server.config.oauth.required_scopes, csrf_token, self.server.config.smtp_from_domain, self.server.config.debug_unredacted_logs),
             headers={"Set-Cookie": _build_authorize_cookie(self.server.config, cookie_value)},
         )
 
@@ -297,9 +297,10 @@ def _single_value_query(raw: str) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
-def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_from_domain: str | None = None) -> str:
+def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_from_domain: str | None = None, debug_unredacted_logs: bool = False) -> str:
     action = f"/oauth/authorize?{html.escape(raw_query, quote=True)}"
     domain_json = json.dumps(smtp_from_domain or "")
+    debug_warning = "<p><strong>Debug logging is enabled.</strong> Email subjects, bodies, tool arguments, and tool results may be written to backend audit logs. Do not use this mode for production mailboxes.</p>" if debug_unredacted_logs else ""
     return f"""<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Authorize Mail MCP</title></head>
@@ -307,6 +308,7 @@ def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_f
 <main>
 <h1>Authorize Mail MCP</h1>
 <p>ChatGPT is requesting: {html.escape(", ".join(scopes))}</p>
+{debug_warning}
 <form method="post" action="{action}">
 <input type="hidden" name="csrf_token" value="{html.escape(csrf_token, quote=True)}">
 <label>IMAP username <input name="imap_username" autocomplete="username" required></label><br>

@@ -219,6 +219,7 @@ def test_authorize_get_sets_secure_cookie_for_https_public_url(server_env, monke
 
 def test_authorize_form_suggests_sender_email_from_smtp_domain(server_env, monkeypatch):
     monkeypatch.setenv("SMTP_FROM_DOMAIN", "example.com")
+    monkeypatch.setenv("MCP_DEBUG_UNREDACTED_LOGS", "true")
     config = load_config()
     oauth = OAuthService(config, imap_verifier=lambda *_: None)
     server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
@@ -234,6 +235,8 @@ def test_authorize_form_suggests_sender_email_from_smtp_domain(server_env, monke
         assert 'const smtpFromDomain = "example.com";' in html
         assert 'username.includes("@")' in html
         assert '${username}@${smtpFromDomain}' in html
+        assert "Debug logging is enabled" in html
+        assert "Email subjects, bodies, tool arguments, and tool results may be written" in html
     finally:
         server.shutdown()
         thread.join(timeout=5)

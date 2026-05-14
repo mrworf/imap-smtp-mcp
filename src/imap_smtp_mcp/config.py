@@ -66,6 +66,7 @@ class AppConfig:
     smtp_timeout_seconds: int
     action_flags: dict[str, bool]
     audit_log_dir: str
+    debug_unredacted_logs: bool = False
     app_data_dir: str = "/var/lib/imap-smtp-mcp"
     oauth: OAuthConfig = OAuthConfig()
     server: ServerConfig = ServerConfig()
@@ -280,6 +281,7 @@ def load_config() -> AppConfig:
         smtp_timeout_seconds=smtp_timeout_seconds,
         action_flags=actions,
         audit_log_dir=_require("AUDIT_LOG_DIR"),
+        debug_unredacted_logs=_parse_bool("MCP_DEBUG_UNREDACTED_LOGS", False),
         app_data_dir=app_data_dir,
         oauth=_load_oauth_config(app_data_dir),
         server=_load_server_config(),

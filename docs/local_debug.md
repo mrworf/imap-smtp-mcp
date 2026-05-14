@@ -18,9 +18,12 @@ export SMTP_MODE=starttls
 export SMTP_FROM_DOMAIN=example.com
 export IMAP_SENT_FOLDER=Sent
 export IMAP_TRASH_FOLDER=Trash
+export MCP_DEBUG_UNREDACTED_LOGS=false
 ```
 
 OAuth users still enter their own IMAP and SMTP usernames/passwords in the authorization form. The form also captures the sender display name and outbound email address; `SMTP_FROM_DOMAIN` only powers the email suggestion.
+
+Temporarily set `MCP_DEBUG_UNREDACTED_LOGS=true` when debugging connector failures. The OAuth form will warn users, and audit logs will include sanitized tool arguments/results, message bodies, and exception tracebacks while still redacting password, token, key, secret, and authorization fields.
 
 ## Reverse Proxy Destination
 

@@ -317,6 +317,15 @@ def test_smtp_from_domain_validation(oauth_env, monkeypatch):
         load_config()
 
 
+def test_debug_unredacted_logs_flag_validation(oauth_env, monkeypatch):
+    monkeypatch.setenv("MCP_DEBUG_UNREDACTED_LOGS", "true")
+    assert load_config().debug_unredacted_logs is True
+
+    monkeypatch.setenv("MCP_DEBUG_UNREDACTED_LOGS", "wat")
+    with pytest.raises(ConfigError, match="Invalid boolean for MCP_DEBUG_UNREDACTED_LOGS"):
+        load_config()
+
+
 def test_invalid_oauth_ttl_rejected(oauth_env, monkeypatch):
     monkeypatch.setenv("OAUTH_ACCESS_TOKEN_TTL_SECONDS", "0")
     with pytest.raises(ConfigError, match="OAUTH_ACCESS_TOKEN_TTL_SECONDS must be > 0"):

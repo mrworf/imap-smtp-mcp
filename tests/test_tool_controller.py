@@ -6,7 +6,7 @@ import pytest
 
 from imap_smtp_mcp.audit import AuditLogger
 from imap_smtp_mcp.config import load_config
-from imap_smtp_mcp.errors import AuthSessionError, PermissionDisabledError
+from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
 from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
@@ -48,6 +48,11 @@ class FakeReadService:
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20):
         return ({"uid": "1", "subject": "Hello"},)
+
+
+class FailingReadService:
+    def search_emails(self, username: str, password: str, folder: str, query: str, limit: int = 50):
+        raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder, "query": query, "limit": str(limit)}) from RuntimeError("socket timeout")
 
 
 def _credentials() -> MailCredentials:
@@ -244,3 +249,56 @@ def test_send_tool_action_flag_blocks_before_sender_identity(controller_env, mon
             subject="subject",
         )
     assert fake_send.calls == []
+
+
+def test_tool_failure_audit_includes_exception_details(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    controller.read_service = FailingReadService()
+
+    with pytest.raises(BackendUnavailableError, match="IMAP search failed"):
+        controller.call_tool(
+            "search_emails",
+            {"folder": "INBOX", "query": "hello", "limit": 5},
+            _credentials(),
+            request_id="search-1",
+            subject="subject",
+        )
+
+    payload = json.loads((tmp_path / "subject.log").read_text(encoding="utf-8").splitlines()[0])
+    assert payload["failure_class"] == "backend_unavailable"
+    assert payload["metadata"]["imap_phase"] == "search"
+    assert payload["metadata"]["folder"] == "INBOX"
+    assert payload["exception_type"] == "BackendUnavailableError"
+    assert payload["exception_message"] == "IMAP search failed"
+    assert "RuntimeError: socket timeout" in payload["exception_cause"]
+    assert "arguments" not in payload
+    assert "exception_traceback" not in payload
+
+
+def test_debug_tool_audit_logs_sanitized_arguments_results_and_traceback(controller_env, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MCP_DEBUG_UNREDACTED_LOGS", "true")
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path), debug_unredacted_logs=True))
+    controller.send_service = FakeSendService()
+
+    result = controller.call_tool(
+        "send_email",
+        {
+            "to_addresses": ["bob@example.com"],
+            "subject": "Subject",
+            "body_text": "Debug body",
+            "smtp_password": "bad-secret",
+        },
+        _credentials(),
+        request_id="send-debug",
+        subject="subject",
+    )
+
+    assert result == {"sent": True}
+    payload = json.loads((tmp_path / "subject.log").read_text(encoding="utf-8").splitlines()[-1])
+    encoded = json.dumps(payload)
+    assert payload["arguments"]["body_text"] == "Debug body"
+    assert payload["arguments"]["smtp_password"] == "[REDACTED]"
+    assert payload["result"] == {"sent": True}
+    assert "bad-secret" not in encoded

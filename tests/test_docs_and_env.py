@@ -38,6 +38,7 @@ def test_env_example_uses_oauth_only_persistent_config() -> None:
     assert "OAUTH_COOKIE_SECRET=replace-with-long-random-csrf-cookie-signing-secret" in env_example
     assert "MCP_TLS_CERT_FILE=" in env_example
     assert "MCP_TLS_KEY_FILE=" in env_example
+    assert "MCP_DEBUG_UNREDACTED_LOGS=false" in env_example
     assert "SMTP_TIMEOUT_SECONDS=30" in env_example
     assert "SMTP_FROM_DOMAIN=example.com" in env_example
     assert "ACTION_CREATE_FOLDER=false" in env_example
@@ -105,3 +106,14 @@ def test_docs_describe_captured_sender_identity() -> None:
     assert "cannot choose `From` or `Reply-To`" in deployment
     assert "sender_identity_override" in security
     assert "does not include `from_address`" in manual
+
+
+def test_docs_describe_debug_unredacted_logging() -> None:
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    local_debug = (ROOT / "docs/local_debug.md").read_text(encoding="utf-8")
+    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
+
+    for text in (deployment, local_debug, security):
+        assert "MCP_DEBUG_UNREDACTED_LOGS" in text
+        assert "traceback" in text.lower()
+        assert "redact" in text.lower()

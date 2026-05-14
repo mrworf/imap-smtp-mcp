@@ -120,6 +120,8 @@ During OAuth authorization, users also confirm the display name and outbound ema
 
 After authorization, MCP callers cannot choose `From` or `Reply-To`. `send_email` always uses the captured sender identity, and any caller-supplied sender or reply-to fields are ignored for delivery and recorded in audit metadata with the requested and actual values.
 
+For short troubleshooting windows, set `MCP_DEBUG_UNREDACTED_LOGS=true`. The OAuth authorization page warns users that debug logging is enabled. Audit logs then include sanitized tool arguments/results, email subjects and bodies, and tracebacks for unexpected failures; password, token, key, secret, and authorization fields remain redacted. Keep this disabled in production.
+
 ## Docker Compose
 Start with:
 

@@ -17,7 +17,17 @@ def test_per_account_and_general_routing(tmp_path):
 
 def test_required_fields_and_redaction(tmp_path):
     logger = AuditLogger(str(tmp_path))
-    logger.log_tool_invocation(AuditEvent(request_id="req-1", mcp_user="bob", operation="send_email", success=False, failure_class="backend_unavailable"))
+    logger.log_tool_invocation(
+        AuditEvent(
+            request_id="req-1",
+            mcp_user="bob",
+            operation="send_email",
+            success=False,
+            failure_class="backend_unavailable",
+            arguments={"body_text": "secret body", "smtp_password": "smtp-secret"},
+            result={"body_text": "result body"},
+        )
+    )
 
     payload = json.loads((tmp_path / "bob.log").read_text().strip())
     assert payload["timestamp"]
@@ -27,6 +37,59 @@ def test_required_fields_and_redaction(tmp_path):
     assert payload["success"] is False
     assert payload["failure_class"] == "backend_unavailable"
     assert payload["message_content"] == REDACTED
+    assert "arguments" not in payload
+    assert "secret body" not in json.dumps(payload)
+
+
+def test_debug_logging_includes_sanitized_args_results_and_traceback(tmp_path):
+    logger = AuditLogger(str(tmp_path), debug_unredacted_logs=True)
+    logger.log_tool_invocation(
+        AuditEvent(
+            request_id="req-1",
+            mcp_user="bob",
+            operation="send_email",
+            success=True,
+            arguments={"subject": "Hello", "body_text": "debug body", "smtp_password": "smtp-secret", "Authorization": "Bearer token"},
+            result={"body_text": "result body", "token": "token-value"},
+            exception_traceback="Traceback details",
+        )
+    )
+
+    payload = json.loads((tmp_path / "bob.log").read_text().strip())
+    encoded = json.dumps(payload)
+    assert payload["arguments"]["body_text"] == "debug body"
+    assert payload["result"]["body_text"] == "result body"
+    assert payload["arguments"]["smtp_password"] == REDACTED
+    assert payload["arguments"]["Authorization"] == REDACTED
+    assert payload["result"]["token"] == REDACTED
+    assert "smtp-secret" not in encoded
+    assert "token-value" not in encoded
+    assert payload["exception_traceback"] == "Traceback details"
+
+
+def test_failure_diagnostics_are_logged_without_debug_traceback(tmp_path):
+    logger = AuditLogger(str(tmp_path))
+    logger.log_tool_invocation(
+        AuditEvent(
+            request_id="req-2",
+            mcp_user="bob",
+            operation="search_emails",
+            success=False,
+            failure_class="backend_unavailable",
+            metadata={"imap_phase": "search", "folder": "INBOX"},
+            exception_type="BackendUnavailableError",
+            exception_message="IMAP search failed",
+            exception_cause="ImapConnectionError: timeout",
+            exception_traceback="Traceback details",
+        )
+    )
+
+    payload = json.loads((tmp_path / "bob.log").read_text().strip())
+    assert payload["metadata"]["imap_phase"] == "search"
+    assert payload["exception_type"] == "BackendUnavailableError"
+    assert payload["exception_message"] == "IMAP search failed"
+    assert payload["exception_cause"] == "ImapConnectionError: timeout"
+    assert "exception_traceback" not in payload
 
 
 def test_failure_path_logged(tmp_path):

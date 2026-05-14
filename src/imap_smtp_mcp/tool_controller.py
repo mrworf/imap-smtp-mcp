@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 from dataclasses import asdict, is_dataclass
 from typing import Any, cast
 
@@ -132,7 +133,7 @@ class MailToolController:
         self.config = config
         self.imap_adapter = imap_adapter or ImapAdapter(config)
         self.smtp_adapter = smtp_adapter or SmtpAdapter(config)
-        self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir)
+        self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir, debug_unredacted_logs=config.debug_unredacted_logs)
         self.read_service = ReadOnlyMailboxService(self.imap_adapter, config)
         self.send_service = SendEmailService(self.smtp_adapter, self.imap_adapter, config)
         self.write_service = WriteMailboxService(self.imap_adapter, config)
@@ -155,13 +156,14 @@ class MailToolController:
             raise InvalidInputError(f"Unknown tool: {name}")
         try:
             result = self._dispatch(name, arguments, credentials, request_id=request_id, subject=subject)
-            self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=True))
-            return _jsonify(result)
+            json_result = _jsonify(result)
+            self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=True, arguments=arguments, result=json_result))
+            return json_result
         except MCPError as exc:
-            self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=False, failure_class=exc.code))
+            self.audit_logger.log_tool_invocation(_failure_event(request_id, subject, name, arguments, exc, exc.code, include_traceback=self.config.debug_unredacted_logs))
             raise
         except Exception as exc:
-            self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=False, failure_class="backend_unavailable"))
+            self.audit_logger.log_tool_invocation(_failure_event(request_id, subject, name, arguments, exc, "backend_unavailable", include_traceback=self.config.debug_unredacted_logs))
             raise BackendUnavailableError("Unexpected tool failure") from exc
 
     def _dispatch(self, name: str, args: dict[str, Any], c: MailCredentials, *, request_id: str, subject: str) -> Any:
@@ -254,6 +256,32 @@ def _safe_optional(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _failure_event(request_id: str, subject: str, operation: str, arguments: dict[str, Any], exc: BaseException, failure_class: str, *, include_traceback: bool) -> AuditEvent:
+    metadata = getattr(exc, "metadata", None)
+    return AuditEvent(
+        request_id=request_id,
+        mcp_user=subject,
+        operation=operation,
+        success=False,
+        failure_class=failure_class,
+        metadata=metadata if isinstance(metadata, dict) else None,
+        arguments=arguments,
+        exception_type=type(exc).__name__,
+        exception_message=str(exc),
+        exception_cause=_exception_cause_chain(exc),
+        exception_traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if include_traceback else None,
+    )
+
+
+def _exception_cause_chain(exc: BaseException) -> str | None:
+    causes: list[str] = []
+    current = exc.__cause__ or exc.__context__
+    while current is not None:
+        causes.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " <- ".join(causes) if causes else None
 
 
 def _description_for(name: str) -> str:

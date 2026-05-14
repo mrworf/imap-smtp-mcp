@@ -22,6 +22,7 @@
 - Mount audit log directory to durable storage.
 - Use metadata-only logging; avoid message body capture.
 - Review `sender_identity_override` events; these record requested versus actual `From`/`Reply-To` values when a caller attempts to spoof sender headers.
+- Leave `MCP_DEBUG_UNREDACTED_LOGS=false` outside short troubleshooting windows. When enabled, audit logs include sanitized tool arguments/results, email subjects and bodies, and exception tracebacks; passwords, tokens, keys, secrets, and raw authorization values remain redacted.
 - Rotate logs at platform level and define retention policy per compliance needs.
 
 ## Incident response basics
