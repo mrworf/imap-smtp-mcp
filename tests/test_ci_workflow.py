@@ -10,6 +10,8 @@ def test_docker_publish_job_is_gated_after_quality_gates() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     assert "quality-gates:" in workflow
+    assert "actions/setup-python@v6" in workflow
+    assert "actions/setup-python@v5" not in workflow
     assert "docker-image:" in workflow
     assert "needs: quality-gates" in workflow
     assert "github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
@@ -36,4 +38,3 @@ def test_docker_publish_keeps_relevant_change_filtering() -> None:
     assert "steps.changed.outputs.docker == 'true'" in workflow
     assert "'Dockerfile'" in workflow
     assert "'src/**'" in workflow
-
