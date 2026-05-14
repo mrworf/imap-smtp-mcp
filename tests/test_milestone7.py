@@ -30,6 +30,9 @@ def container_like_env(monkeypatch):
         "ACTION_DELETE_EMAIL_PERMANENT": "false",
         "ACTION_MOVE_TO_TRASH": "false",
         "ACTION_EMPTY_TRASH": "false",
+        "ACTION_CREATE_FOLDER": "false",
+        "ACTION_RENAME_FOLDER": "false",
+        "ACTION_DELETE_FOLDER": "false",
     }
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -40,6 +43,7 @@ def test_container_env_config_parses(container_like_env):
     assert config.imap.port == 993
     assert config.smtp.port == 587
     assert config.action_flags["move_email"] is False
+    assert config.action_flags["create_folder"] is False
 
 
 def test_startup_fails_fast_when_env_missing(container_like_env, monkeypatch):

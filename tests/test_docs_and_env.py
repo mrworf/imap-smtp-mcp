@@ -38,6 +38,9 @@ def test_env_example_uses_oauth_only_persistent_config() -> None:
     assert "MCP_TLS_CERT_FILE=" in env_example
     assert "MCP_TLS_KEY_FILE=" in env_example
     assert "SMTP_TIMEOUT_SECONDS=30" in env_example
+    assert "ACTION_CREATE_FOLDER=false" in env_example
+    assert "ACTION_RENAME_FOLDER=false" in env_example
+    assert "ACTION_DELETE_FOLDER=false" in env_example
     assert "MCP_" + "PRESHARED_KEY" not in env_example
     assert "MCP_" + "ALLOWED_USERS" not in env_example
     assert "USER_ALICE_" + "IMAP_USERNAME" not in env_example

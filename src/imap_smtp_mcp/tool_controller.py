@@ -30,6 +30,9 @@ TOOL_SCOPES = {
     "delete_email_permanent": (WRITE_SCOPE,),
     "move_to_trash": (WRITE_SCOPE,),
     "empty_trash": (WRITE_SCOPE,),
+    "create_folder": (WRITE_SCOPE,),
+    "rename_folder": (WRITE_SCOPE,),
+    "delete_folder": (WRITE_SCOPE,),
 }
 
 
@@ -88,6 +91,21 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {"source_folder": {"type": "string"}, "uid": {"type": "string"}},
     },
     "empty_trash": {"type": "object", "properties": {}, "additionalProperties": False},
+    "create_folder": {
+        "type": "object",
+        "required": ["folder"],
+        "properties": {"folder": {"type": "string"}},
+    },
+    "rename_folder": {
+        "type": "object",
+        "required": ["source_folder", "target_folder"],
+        "properties": {"source_folder": {"type": "string"}, "target_folder": {"type": "string"}},
+    },
+    "delete_folder": {
+        "type": "object",
+        "required": ["folder"],
+        "properties": {"folder": {"type": "string"}},
+    },
 }
 
 
@@ -191,6 +209,15 @@ class MailToolController:
         if name == "empty_trash":
             self.write_service.empty_trash(c.imap_username, c.imap_password)
             return {"emptied": True}
+        if name == "create_folder":
+            self.write_service.create_folder(c.imap_username, c.imap_password, str(args["folder"]))
+            return {"created": True}
+        if name == "rename_folder":
+            self.write_service.rename_folder(c.imap_username, c.imap_password, str(args["source_folder"]), str(args["target_folder"]))
+            return {"renamed": True}
+        if name == "delete_folder":
+            self.write_service.delete_folder(c.imap_username, c.imap_password, str(args["folder"]))
+            return {"deleted": True}
         raise InvalidInputError(f"Unknown tool: {name}")
 
 
@@ -207,11 +234,14 @@ def _description_for(name: str) -> str:
         "delete_email_permanent": "Permanently delete an email and expunge it.",
         "move_to_trash": "Move an email to the configured trash folder.",
         "empty_trash": "Permanently delete all mail in the configured trash folder.",
+        "create_folder": "Create an IMAP folder.",
+        "rename_folder": "Rename an IMAP folder.",
+        "delete_folder": "Delete an IMAP folder using the server's default IMAP DELETE behavior.",
     }
     return descriptions[name]
 
 
 def _annotations_for(name: str) -> dict[str, Any]:
-    if name in {"send_email", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash"}:
-        return {"readOnlyHint": False, "destructiveHint": name in {"delete_email_permanent", "empty_trash"}}
+    if name in {"send_email", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
+        return {"readOnlyHint": False, "destructiveHint": name in {"delete_email_permanent", "empty_trash", "delete_folder"}}
     return {"readOnlyHint": True, "destructiveHint": False}

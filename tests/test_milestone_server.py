@@ -352,6 +352,8 @@ def test_mcp_requires_bearer_and_lists_tools(http_server):
     assert status == 200
     tools = json.loads(raw)["result"]["tools"]
     assert any(tool["name"] == "read_email" for tool in tools)
+    create_folder = next(tool for tool in tools if tool["name"] == "create_folder")
+    assert create_folder["inputSchema"]["required"] == ["folder"]
 
 
 def test_mcp_tool_call_uses_oauth_session_credentials(http_server):
