@@ -40,6 +40,47 @@ class WriteMailboxService:
         if folder not in self._imap_adapter.list_folders(client):
             raise NotFoundError(f"Folder not found: {folder}")
 
+    def _ensure_folder_absent(self, client, folder: str) -> None:
+        if folder in self._imap_adapter.list_folders(client):
+            raise InvalidInputError(f"Folder already exists: {folder}")
+
+    def create_folder(self, username: str, password: str, folder: str) -> None:
+        self._enforce_action("create_folder")
+        folder_name = self._validate_single_line("folder", folder)
+        try:
+            client = self._imap_adapter.connect(username, password)
+            status, _ = client.create(folder_name)
+            if status != "OK":
+                raise BackendUnavailableError("Failed to create folder")
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
+
+    def rename_folder(self, username: str, password: str, source_folder: str, target_folder: str) -> None:
+        self._enforce_action("rename_folder")
+        src = self._validate_single_line("source_folder", source_folder)
+        dst = self._validate_single_line("target_folder", target_folder)
+        try:
+            client = self._imap_adapter.connect(username, password)
+            self._ensure_folder_exists(client, src)
+            self._ensure_folder_absent(client, dst)
+            status, _ = client.rename(src, dst)
+            if status != "OK":
+                raise BackendUnavailableError("Failed to rename folder")
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
+
+    def delete_folder(self, username: str, password: str, folder: str) -> None:
+        self._enforce_action("delete_folder")
+        folder_name = self._validate_single_line("folder", folder)
+        try:
+            client = self._imap_adapter.connect(username, password)
+            self._ensure_folder_exists(client, folder_name)
+            status, _ = client.delete(folder_name)
+            if status != "OK":
+                raise BackendUnavailableError("Failed to delete folder")
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable") from exc
+
     def mark_read_state(self, username: str, password: str, folder: str, uid: str, is_read: bool) -> None:
         self._enforce_action("mark_read_state")
         folder_name = self._validate_single_line("folder", folder)

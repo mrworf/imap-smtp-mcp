@@ -251,6 +251,9 @@ def load_config() -> AppConfig:
         "delete_email_permanent": _parse_bool("ACTION_DELETE_EMAIL_PERMANENT", True),
         "move_to_trash": _parse_bool("ACTION_MOVE_TO_TRASH", True),
         "empty_trash": _parse_bool("ACTION_EMPTY_TRASH", True),
+        "create_folder": _parse_bool("ACTION_CREATE_FOLDER", True),
+        "rename_folder": _parse_bool("ACTION_RENAME_FOLDER", True),
+        "delete_folder": _parse_bool("ACTION_DELETE_FOLDER", True),
     }
 
     return AppConfig(

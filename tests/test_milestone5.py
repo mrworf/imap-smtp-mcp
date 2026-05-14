@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from imap_smtp_mcp.config import load_config
-from imap_smtp_mcp.errors import BackendUnavailableError, NotFoundError, PermissionDisabledError
+from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from imap_smtp_mcp.imap_adapter import ImapAdapter
 from imap_smtp_mcp.write_tools import WriteMailboxService
 
@@ -14,6 +14,9 @@ class FakeImapClient:
         self.copied_to: str | None = None
         self.expunge_called = False
         self.calls: list[tuple[str, tuple[object, ...]]] = []
+        self.created_folder: str | None = None
+        self.renamed_folder: tuple[str, str] | None = None
+        self.deleted_folder: str | None = None
 
     def login(self, user, password):
         return "OK", []
@@ -24,6 +27,18 @@ class FakeImapClient:
 
     def list(self):
         return "OK", [b'(\\HasNoChildren) "/" "Inbox"', b'(\\HasNoChildren) "/" "Archive"', b'(\\HasNoChildren) "/" "Trash"']
+
+    def create(self, folder):
+        self.created_folder = folder
+        return "OK", []
+
+    def rename(self, source, target):
+        self.renamed_folder = (source, target)
+        return "OK", []
+
+    def delete(self, folder):
+        self.deleted_folder = folder
+        return "OK", []
 
     def uid(self, op, *args):
         self.calls.append((op, args))
@@ -76,6 +91,88 @@ def test_move_and_copy_and_delete_and_trash(service):
     service.delete_email_permanent("u", "p", "Inbox", "42")
     service.move_to_trash("u", "p", "Inbox", "42")
     service.empty_trash("u", "p")
+
+
+def test_folder_lifecycle_operations_success(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    svc.create_folder("u", "p", "MCP_TEST")
+    svc.rename_folder("u", "p", "Archive", "MCP_TEST_RENAMED")
+    svc.delete_folder("u", "p", "Archive")
+
+    assert client.created_folder == "MCP_TEST"
+    assert client.renamed_folder == ("Archive", "MCP_TEST_RENAMED")
+    assert client.deleted_folder == "Archive"
+
+
+def test_folder_operations_validate_names(service):
+    with pytest.raises(InvalidInputError, match="folder must not be empty"):
+        service.create_folder("u", "p", " ")
+    with pytest.raises(InvalidInputError, match="source_folder must be single-line"):
+        service.rename_folder("u", "p", "Bad\nFolder", "Target")
+    with pytest.raises(InvalidInputError, match="folder must be single-line"):
+        service.delete_folder("u", "p", "Bad\nFolder")
+
+
+def test_folder_operations_action_flags_before_adapter(monkeypatch):
+    _env(monkeypatch)
+    monkeypatch.setenv("ACTION_CREATE_FOLDER", "false")
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    with pytest.raises(PermissionDisabledError, match="Action disabled: create_folder"):
+        svc.create_folder("u", "p", "MCP_TEST")
+    assert client.created_folder is None
+    assert client.calls == []
+
+
+def test_rename_folder_source_missing_and_target_exists(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+
+    class MissingSource(FakeImapClient):
+        def list(self):
+            return "OK", [b'(\\HasNoChildren) "/" "Archive"']
+
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: MissingSource()), cfg)
+    with pytest.raises(NotFoundError, match="Folder not found: Missing"):
+        svc.rename_folder("u", "p", "Missing", "Target")
+
+    class ExistingTarget(FakeImapClient):
+        def list(self):
+            return "OK", [b'(\\HasNoChildren) "/" "Archive"', b'(\\HasNoChildren) "/" "Target"']
+
+    svc2 = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: ExistingTarget()), cfg)
+    with pytest.raises(InvalidInputError, match="Folder already exists: Target"):
+        svc2.rename_folder("u", "p", "Archive", "Target")
+
+
+def test_folder_operation_backend_failures(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+
+    class FailingFolders(FakeImapClient):
+        def create(self, folder):
+            return "NO", []
+
+        def rename(self, source, target):
+            return "NO", []
+
+        def delete(self, folder):
+            return "NO", []
+
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: FailingFolders()), cfg)
+
+    with pytest.raises(BackendUnavailableError, match="Failed to create folder"):
+        svc.create_folder("u", "p", "MCP_TEST")
+    with pytest.raises(BackendUnavailableError, match="Failed to rename folder"):
+        svc.rename_folder("u", "p", "Archive", "MCP_TEST")
+    with pytest.raises(BackendUnavailableError, match="Failed to delete folder"):
+        svc.delete_folder("u", "p", "Archive")
 
 
 def test_action_flags_block(monkeypatch):
