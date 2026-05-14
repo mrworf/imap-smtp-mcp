@@ -6,10 +6,12 @@ from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from imap_smtp_mcp.imap_adapter import ImapAdapter
 from imap_smtp_mcp.read_tools import ReadOnlyMailboxService
+from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 
 
 class FakeMailboxClient:
     def __init__(self):
+        self.uid_calls = []
         self.messages = {
             "1": self._build("Hello", "a@example.com", "b@example.com", "body one"),
             "2": self._build_html("Html", "c@example.com", "d@example.com", "<p>Hello <b>world</b></p>"),
@@ -43,8 +45,13 @@ class FakeMailboxClient:
         return ("OK", [b"2"]) if folder == "INBOX" else ("NO", [b""])
 
     def uid(self, command, *args):
+        self.uid_calls.append((command, args))
         if command == "search" and args == (None, "TEXT", "hello"):
             return ("OK", [b"1 2"])
+        if command == "search" and args == (None, "TEXT", "hello SINCE yesterday"):
+            return ("OK", [b"2"])
+        if command == "search" and args == (None, "SINCE", "13-May-2026", "BEFORE", "14-May-2026"):
+            return ("OK", [b"2"])
         if command == "search" and args == (None, "ALL"):
             return ("OK", [b"1 2"])
         if command == "fetch":
@@ -97,6 +104,15 @@ def _service(config):
     return ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=fake_ssl_factory), config=config)
 
 
+def _service_with_client(config):
+    client = FakeMailboxClient()
+
+    def fake_ssl_factory(host, port, ssl_context):
+        return client
+
+    return ReadOnlyMailboxService(ImapAdapter(config=config, imap_ssl_factory=fake_ssl_factory), config=config), client
+
+
 def test_readonly_tools_positive_flows(base_env):
     config = load_config()
     service = _service(config)
@@ -110,6 +126,52 @@ def test_readonly_tools_positive_flows(base_env):
 
     read = service.read_email("u", "p", "INBOX", "2")
     assert "Hello **world**" in read.body_text
+
+
+def test_search_emails_uses_plain_text_search_by_default(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    assert service.search_emails("u", "p", "INBOX", "hello", limit=2) == ("1", "2")
+
+    assert ("search", (None, "TEXT", "hello")) in client.uid_calls
+
+
+def test_search_emails_accepts_imap_date_criteria(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    result = service.search_emails("u", "p", "INBOX", "SINCE 13-May-2026 BEFORE 14-May-2026")
+
+    assert result == ("2",)
+    assert ("search", (None, "SINCE", "13-May-2026", "BEFORE", "14-May-2026")) in client.uid_calls
+
+
+def test_search_emails_keeps_non_criteria_phrases_as_text(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    assert service.search_emails("u", "p", "INBOX", "hello SINCE yesterday") == ("2",)
+
+    assert ("search", (None, "TEXT", "hello SINCE yesterday")) in client.uid_calls
+
+
+def test_search_emails_rejects_malformed_date_criteria(base_env):
+    config = load_config()
+    service = _service(config)
+
+    with pytest.raises(InvalidInputError, match="invalid IMAP date criteria"):
+        service.search_emails("u", "p", "INBOX", "SINCE 2026-05-13")
+
+    with pytest.raises(InvalidInputError, match="malformed IMAP criteria quoting"):
+        service.search_emails("u", "p", "INBOX", 'SINCE "13-May-2026')
+
+
+def test_search_emails_schema_documents_date_criteria():
+    description = TOOL_SCHEMAS["search_emails"]["properties"]["query"]["description"]
+
+    assert "IMAP date criteria" in description
+    assert "SINCE 13-May-2026 BEFORE 14-May-2026" in description
 
 
 def test_invalid_input_and_not_found(base_env):

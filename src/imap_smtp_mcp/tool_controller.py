@@ -43,7 +43,11 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "search_emails": {
         "type": "object",
         "required": ["folder", "query"],
-        "properties": {"folder": {"type": "string"}, "query": {"type": "string"}, "limit": {"type": "integer", "default": 50}},
+        "properties": {
+            "folder": {"type": "string"},
+            "query": {"type": "string", "description": "Plain text to search for, or IMAP date criteria such as SINCE 13-May-2026 BEFORE 14-May-2026."},
+            "limit": {"type": "integer", "default": 50},
+        },
     },
     "list_emails": {
         "type": "object",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import shlex
 from html.parser import HTMLParser
 from dataclasses import dataclass
 from email import message_from_bytes
@@ -11,6 +13,9 @@ from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, P
 from .imap_adapter import ImapAdapter, ImapAdapterError
 
 MAX_RESULTS = 100
+_IMAP_DATE_RE = re.compile(r"^\d{1,2}-[A-Za-z]{3}-\d{4}$")
+_IMAP_DATE_CRITERIA = {"SINCE", "BEFORE", "ON", "SENTSINCE", "SENTBEFORE", "SENTON"}
+_IMAP_MONTHS = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,42 @@ def _validate_nonempty_single_line(name: str, value: str) -> str:
     if not normalized:
         raise InvalidInputError(f"{name} must not be empty")
     return normalized
+
+
+def _search_arguments(query: str) -> tuple[str, ...]:
+    try:
+        tokens = tuple(shlex.split(query))
+    except ValueError as exc:
+        raw_first = query.split(maxsplit=1)[0].upper() if query.split() else ""
+        if raw_first in _IMAP_DATE_CRITERIA:
+            raise InvalidInputError("query has malformed IMAP criteria quoting") from exc
+        return ("TEXT", query)
+
+    if not tokens:
+        return ("TEXT", query)
+    first = tokens[0].upper()
+    if first not in _IMAP_DATE_CRITERIA:
+        return ("TEXT", query)
+    if len(tokens) % 2 != 0:
+        raise InvalidInputError("query must use IMAP date criteria as KEY DATE pairs")
+
+    out: list[str] = []
+    for idx in range(0, len(tokens), 2):
+        key = tokens[idx].upper()
+        date = tokens[idx + 1]
+        if key not in _IMAP_DATE_CRITERIA:
+            raise InvalidInputError("query contains unsupported IMAP date criteria")
+        if not _valid_imap_date(date):
+            raise InvalidInputError("query contains invalid IMAP date criteria")
+        out.extend((key, date))
+    return tuple(out)
+
+
+def _valid_imap_date(value: str) -> bool:
+    if not _IMAP_DATE_RE.match(value):
+        return False
+    day, month, _ = value.split("-")
+    return 1 <= int(day) <= 31 and month.upper() in _IMAP_MONTHS
 
 
 def _extract_plain_text(msg: Message) -> str:
@@ -123,6 +164,7 @@ class ReadOnlyMailboxService:
         query_text = _validate_nonempty_single_line("query", query)
         if limit <= 0 or limit > MAX_RESULTS:
             raise InvalidInputError(f"limit must be between 1 and {MAX_RESULTS}")
+        search_args = _search_arguments(query_text)
 
         try:
             client = self._imap_adapter.connect(username, password)
@@ -132,7 +174,7 @@ class ReadOnlyMailboxService:
             status, _ = client.select(folder_name)
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
-            status, ids = client.uid("search", None, "TEXT", query_text)
+            status, ids = client.uid("search", None, *search_args)
             if status != "OK":
                 raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder_name, "query": query_text, "limit": str(limit)})
             all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
