@@ -117,3 +117,32 @@ def test_docs_describe_debug_unredacted_logging() -> None:
         assert "MCP_DEBUG_UNREDACTED_LOGS" in text
         assert "traceback" in text.lower()
         assert "redact" in text.lower()
+
+
+def test_example_prompts_cover_common_and_full_capability_flows() -> None:
+    prompts_path = ROOT / "docs/example_prompts.md"
+    assert prompts_path.exists()
+    prompts = prompts_path.read_text(encoding="utf-8")
+
+    assert "SINCE 13-May-2026 BEFORE 14-May-2026" in prompts
+    assert "Full Capability Smoke Prompt" in prompts
+    assert "guarded skip" in prompts
+    assert "call empty_trash only if Trash is confirmed to contain no messages except MCP-created messages" in prompts
+
+    for capability in (
+        "list_folders",
+        "search_emails",
+        "list_emails",
+        "read_email",
+        "send_email",
+        "mark_read_state",
+        "move_email",
+        "copy_email",
+        "delete_email_permanent",
+        "move_to_trash",
+        "empty_trash",
+        "create_folder",
+        "rename_folder",
+        "delete_folder",
+    ):
+        assert capability in prompts
