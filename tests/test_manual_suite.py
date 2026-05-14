@@ -39,7 +39,6 @@ def _suite_config() -> SuiteConfig:
         smtp_username="smtp-user",
         smtp_password="smtp-pass",
         inbox_folder="INBOX",
-        test_folder="MCP_TEST",
         trash_folder="Trash",
         poll_attempts=1,
         poll_interval_seconds=1,
@@ -61,6 +60,9 @@ def test_manual_suite_server_env_is_oauth_only(tmp_path) -> None:
     assert "MCP_" + "ALLOWED_USERS" not in env
     assert "USER_OAUTH_" + "IMAP_USERNAME" not in env
     assert str(ROOT / "src") in env["PYTHONPATH"].split(os.pathsep)
+    assert env["ACTION_CREATE_FOLDER"] == "true"
+    assert env["ACTION_RENAME_FOLDER"] == "true"
+    assert env["ACTION_DELETE_FOLDER"] == "true"
 
 
 def test_manual_suite_server_env_preserves_existing_pythonpath(tmp_path, monkeypatch) -> None:
@@ -178,7 +180,7 @@ class FakeManualClient:
             return [{"uid": "10"}]
         if name == "read_email":
             return {"from_address": "test@example.com", "body_text": f"manual compatibility test marker: {arguments.get('marker', '')}"}
-        if name in {"copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash"}:
+        if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
             return {"ok": True}
         raise AssertionError(f"Unexpected tool: {name}")
 
@@ -207,19 +209,19 @@ def test_find_marker_uid_exhaustion_names_step_and_folder(monkeypatch) -> None:
         assert "marker-1" in message
 
 
-def test_run_mail_flow_checks_required_folders_before_send(monkeypatch) -> None:
+def test_run_mail_flow_checks_required_inbox_and_trash_before_send(monkeypatch) -> None:
     monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
-    client = FakeManualClient(folders=["INBOX", "Trash"])
+    client = FakeManualClient(folders=["INBOX"])
 
     try:
         manual_suite._run_mail_flow(client, _suite_config())
         assert False, "Expected RuntimeError"
     except RuntimeError as exc:
-        assert "Required folders missing from mailbox: MCP_TEST" in str(exc)
+        assert "Required folders missing from mailbox: Trash" in str(exc)
     assert [call[0] for call in client.calls] == ["list_folders"]
 
 
-def test_run_mail_flow_resolves_uid_before_copy_and_move(monkeypatch) -> None:
+def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch) -> None:
     marker = "mcp-compat-1234567890-abc123"
     monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
     monkeypatch.setattr(manual_suite.time, "time", lambda: 1234567890)
@@ -238,20 +240,60 @@ def test_run_mail_flow_resolves_uid_before_copy_and_move(monkeypatch) -> None:
                 return [{"uid": "initial"}]
             if name == "read_email":
                 return {"from_address": "test@example.com", "body_text": marker}
-            if name in {"copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash"}:
+            if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
                 return {"ok": True}
             raise AssertionError(f"Unexpected tool: {name}")
 
-    client = FlowClient(search_results=[["initial"], ["copy-fresh"], ["move-fresh"], ["test-folder-uid"], ["trash-uid"]])
+    client = FlowClient(search_results=[["initial"], ["copy-fresh"], ["move-fresh"], ["test-folder-uid-a", "test-folder-uid-b"], ["trash-uid-a", "trash-uid-b"]])
     manual_suite._run_mail_flow(client, _suite_config())
 
+    create_call = next(args for name, args in client.calls if name == "create_folder")
+    rename_call = next(args for name, args in client.calls if name == "rename_folder")
     copy_call = next(args for name, args in client.calls if name == "copy_email")
     move_call = next(args for name, args in client.calls if name == "move_email")
+    delete_call = [args for name, args in client.calls if name == "delete_folder"][-1]
+    assert create_call["folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123"
+    assert rename_call == {
+        "source_folder": "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123",
+        "target_folder": "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED",
+    }
     assert copy_call["uid"] == "copy-fresh"
+    assert copy_call["target_folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
     assert move_call["uid"] == "move-fresh"
+    assert move_call["target_folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
+    assert delete_call["folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
     search_calls = [args for name, args in client.calls if name == "search_emails"]
     assert len(search_calls) >= 5
     assert all(json.dumps(args).find("mcp-compat-1234567890-abc123") >= 0 for args in search_calls)
+
+
+def test_run_mail_flow_cleans_up_created_folder_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(manual_suite.time, "time", lambda: 1234567890)
+    monkeypatch.setattr(manual_suite.secrets, "token_hex", lambda *_: "abc123")
+
+    class FailingFlowClient(FakeManualClient):
+        def call_tool(self, name: str, arguments: dict[str, object]):
+            self.calls.append((name, arguments))
+            if name == "list_folders":
+                return self.folders
+            if name == "create_folder":
+                return {"created": True}
+            if name == "rename_folder":
+                raise RuntimeError("rename failed")
+            if name == "delete_folder":
+                return {"deleted": True}
+            raise AssertionError(f"Unexpected tool: {name}")
+
+    client = FailingFlowClient()
+    try:
+        manual_suite._run_mail_flow(client, _suite_config())
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "rename failed" in str(exc)
+
+    delete_call = next(args for name, args in client.calls if name == "delete_folder")
+    assert delete_call["folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123"
 
 
 def test_manual_suite_test_imports_with_src_only_pythonpath() -> None:

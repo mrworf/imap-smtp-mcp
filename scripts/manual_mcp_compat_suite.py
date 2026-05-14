@@ -41,7 +41,6 @@ class SuiteConfig:
     smtp_username: str
     smtp_password: str
     inbox_folder: str
-    test_folder: str
     trash_folder: str
     poll_attempts: int
     poll_interval_seconds: int
@@ -114,6 +113,19 @@ def _require_folders(folders: Any, required: tuple[str, ...]) -> None:
         raise RuntimeError(f"Required folders missing from mailbox: {', '.join(missing)}")
 
 
+def _temporary_folders(marker: str) -> tuple[str, str]:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", marker)
+    created = f"MCP_COMPAT_TEST_{safe}"
+    return created, f"{created}_RENAMED"
+
+
+def _safe_delete_folder(client: MCPClient, folder: str) -> None:
+    try:
+        client.call_tool("delete_folder", {"folder": folder})
+    except RuntimeError as exc:
+        print(f"  cleanup warning: could not delete temporary folder {folder}: {exc}")
+
+
 def _find_marker_uid(client: MCPClient, folder: str, marker: str, args: SuiteConfig, *, step: str, limit: int = 20) -> str:
     for _ in range(args.poll_attempts):
         uids = _extract_uids(client.call_tool("search_emails", {"folder": folder, "query": marker, "limit": limit}))
@@ -156,7 +168,6 @@ def load_suite_config() -> SuiteConfig:
         smtp_username=_env_required("MCP_COMPAT_SMTP_USERNAME"),
         smtp_password=_env_required("MCP_COMPAT_SMTP_PASSWORD"),
         inbox_folder=os.getenv("MCP_COMPAT_INBOX_FOLDER", "INBOX"),
-        test_folder=_env_required("MCP_COMPAT_TEST_FOLDER"),
         trash_folder=_env_required("MCP_COMPAT_TRASH_FOLDER"),
         poll_attempts=_env_int("MCP_COMPAT_POLL_ATTEMPTS", 10),
         poll_interval_seconds=_env_int("MCP_COMPAT_POLL_INTERVAL_SECONDS", 3),
@@ -184,6 +195,20 @@ def _server_env(config: SuiteConfig, audit_dir: str) -> dict[str, str]:
             "IMAP_SENT_FOLDER": os.getenv("IMAP_SENT_FOLDER", "Sent"),
             "IMAP_TRASH_FOLDER": config.trash_folder,
             "AUDIT_LOG_DIR": audit_dir,
+            "ACTION_LIST_FOLDERS": "true",
+            "ACTION_SEARCH_EMAILS": "true",
+            "ACTION_LIST_EMAILS": "true",
+            "ACTION_READ_EMAIL": "true",
+            "ACTION_SEND_EMAIL": "true",
+            "ACTION_MARK_READ_STATE": "true",
+            "ACTION_MOVE_EMAIL": "true",
+            "ACTION_COPY_EMAIL": "true",
+            "ACTION_DELETE_EMAIL_PERMANENT": "true",
+            "ACTION_MOVE_TO_TRASH": "true",
+            "ACTION_EMPTY_TRASH": "true",
+            "ACTION_CREATE_FOLDER": "true",
+            "ACTION_RENAME_FOLDER": "true",
+            "ACTION_DELETE_FOLDER": "true",
         }
     )
     return env
@@ -398,55 +423,72 @@ def run_suite() -> None:
 
 def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
     marker = f"mcp-compat-{int(time.time())}-{secrets.token_hex(3)}"
-    print("[1/12] list_folders")
+    created_folder, test_folder = _temporary_folders(marker)
+    cleanup_folder: str | None = None
+    print("[1/15] list_folders")
     folders = client.call_tool("list_folders", {})
     print(f"  folders response: {folders}")
-    _require_folders(folders, (args.inbox_folder, args.test_folder, args.trash_folder))
+    _require_folders(folders, (args.inbox_folder, args.trash_folder))
 
-    print("[2/12] send_email (self-addressed)")
-    body = f"manual compatibility test marker: {marker}"
-    client.call_tool("send_email", {"from_address": args.test_email, "to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
+    try:
+        print("[2/15] create_folder")
+        client.call_tool("create_folder", {"folder": created_folder})
+        cleanup_folder = created_folder
+        print("[3/15] rename_folder")
+        client.call_tool("rename_folder", {"source_folder": created_folder, "target_folder": test_folder})
+        cleanup_folder = test_folder
 
-    print("[3/12] search_emails")
-    found_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="initial inbox search", limit=10)
+        print("[4/15] send_email (self-addressed)")
+        body = f"manual compatibility test marker: {marker}"
+        client.call_tool("send_email", {"from_address": args.test_email, "to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
 
-    print("[4/12] list_emails")
-    listed = client.call_tool("list_emails", {"folder": args.inbox_folder, "offset": 0, "limit": 50})
-    print(f"  listed response length: {len(listed) if isinstance(listed, list) else 'n/a'}")
+        print("[5/15] search_emails")
+        found_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="initial inbox search", limit=10)
 
-    print("[5/12] read_email")
-    read_result = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": found_uid, "max_chars": 50000})
-    if marker not in json.dumps(read_result):
-        raise RuntimeError("Read-email payload did not contain expected marker text.")
-    sender = _extract_email_address(str(read_result.get("from_address", ""))) if isinstance(read_result, dict) else ""
-    if sender and sender.lower() != args.test_email.lower():
-        raise RuntimeError(f"Unexpected sender address: {sender} != {args.test_email}")
+        print("[6/15] list_emails")
+        listed = client.call_tool("list_emails", {"folder": args.inbox_folder, "offset": 0, "limit": 50})
+        print(f"  listed response length: {len(listed) if isinstance(listed, list) else 'n/a'}")
 
-    print("[6/12] copy_email")
-    copy_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="copy_email", limit=10)
-    client.call_tool("copy_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": copy_uid})
-    print("[7/12] move_email")
-    move_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="move_email", limit=10)
-    client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": move_uid})
+        print("[7/15] read_email")
+        read_result = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": found_uid, "max_chars": 50000})
+        if marker not in json.dumps(read_result):
+            raise RuntimeError("Read-email payload did not contain expected marker text.")
+        sender = _extract_email_address(str(read_result.get("from_address", ""))) if isinstance(read_result, dict) else ""
+        if sender and sender.lower() != args.test_email.lower():
+            raise RuntimeError(f"Unexpected sender address: {sender} != {args.test_email}")
 
-    print("[8/12] search copied/moved in test folder")
-    moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.test_folder, "query": marker, "limit": 20}))
-    if not moved_uids:
-        raise RuntimeError("Could not find message in target test folder after move/copy.")
-    test_uid = moved_uids[-1]
+        print("[8/15] copy_email")
+        copy_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="copy_email", limit=10)
+        client.call_tool("copy_email", {"source_folder": args.inbox_folder, "target_folder": test_folder, "uid": copy_uid})
+        print("[9/15] move_email")
+        move_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="move_email", limit=10)
+        client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": test_folder, "uid": move_uid})
 
-    print("[9/12] mark_read_state true/false")
-    client.call_tool("mark_read_state", {"folder": args.test_folder, "uid": test_uid, "is_read": True})
-    client.call_tool("mark_read_state", {"folder": args.test_folder, "uid": test_uid, "is_read": False})
-    print("[10/12] move_to_trash")
-    client.call_tool("move_to_trash", {"source_folder": args.test_folder, "uid": test_uid})
-    print("[11/12] delete_email_permanent")
-    trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "query": marker, "limit": 20}))
-    if trash_uids:
-        client.call_tool("delete_email_permanent", {"folder": args.trash_folder, "uid": trash_uids[-1]})
-    print("[12/12] empty_trash")
-    client.call_tool("empty_trash", {})
-    print("SUCCESS: Manual MCP compatibility suite completed.")
+        print("[10/15] search copied/moved in test folder")
+        moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": test_folder, "query": marker, "limit": 20}))
+        if not moved_uids:
+            raise RuntimeError("Could not find message in target test folder after move/copy.")
+        test_uid = moved_uids[-1]
+
+        print("[11/15] mark_read_state true/false")
+        client.call_tool("mark_read_state", {"folder": test_folder, "uid": test_uid, "is_read": True})
+        client.call_tool("mark_read_state", {"folder": test_folder, "uid": test_uid, "is_read": False})
+        print("[12/15] move_to_trash")
+        for uid in moved_uids:
+            client.call_tool("move_to_trash", {"source_folder": test_folder, "uid": uid})
+        print("[13/15] delete_email_permanent")
+        trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "query": marker, "limit": 20}))
+        for uid in trash_uids:
+            client.call_tool("delete_email_permanent", {"folder": args.trash_folder, "uid": uid})
+        print("[14/15] empty_trash")
+        client.call_tool("empty_trash", {})
+        print("[15/15] delete_folder")
+        client.call_tool("delete_folder", {"folder": test_folder})
+        cleanup_folder = None
+        print("SUCCESS: Manual MCP compatibility suite completed.")
+    finally:
+        if cleanup_folder:
+            _safe_delete_folder(client, cleanup_folder)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ def test_manual_suite_docs_describe_csrf_and_source_checkout_launch() -> None:
     assert "POST /oauth/authorize" in manual
     assert "PYTHONPATH" in manual
     assert "src" in manual
-    assert "configured inbox, test folder, and trash folder exist" in manual
+    assert "configured inbox and trash folder exist" in manual
+    assert "creates a unique temporary test folder" in manual
     assert "re-searches for the unique per-run marker before copy and move" in manual
 
 
