@@ -8,6 +8,12 @@ The script requires an interactive TTY and the exact confirmation phrase before 
 ## What it now tests
 The suite starts this MCP server on a temporary local port, performs OAuth Dynamic Client Registration, completes an authorization-code + PKCE flow using the supplied IMAP/SMTP credentials, and calls the real `/sse` MCP endpoint.
 
+The OAuth step follows the same CSRF-protected authorize form path used by browsers: it loads `GET /oauth/authorize`, captures the signed CSRF cookie and hidden form token, submits credentials to `POST /oauth/authorize`, then exchanges the authorization code for a bearer token.
+
+When the suite starts the server from a source checkout, it prepends the repository `src` directory to `PYTHONPATH` for the spawned server process. You do not need to install the package editable before running the suite from this repository.
+
+The suite verifies that the configured inbox, test folder, and trash folder exist before sending mail. During the destructive flow it re-searches for the unique per-run marker before copy and move operations because live IMAP mailbox UID visibility can change between operations.
+
 `/sse` is Streamable HTTP-compatible JSON-RPC for ChatGPT. It is not a strict legacy long-lived SSE stream. Native stdio for Claude Desktop is not implemented; use an external HTTP-to-stdio bridge if needed.
 
 It verifies:
@@ -52,6 +58,7 @@ export MCP_COMPAT_PORT=8123
 export MCP_COMPAT_PUBLIC_BASE_URL=http://127.0.0.1:8123
 export MCP_COMPAT_SERVER_COMMAND="python -m imap_smtp_mcp.server"
 export MCP_COMPAT_INBOX_FOLDER=INBOX
+export MCP_COMPAT_HTTP_TIMEOUT_SECONDS=120
 export MCP_COMPAT_USE_EXISTING_SERVER=false
 ```
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -26,8 +27,8 @@ SuiteConfig = manual_suite.SuiteConfig
 _server_env = manual_suite._server_env
 
 
-def test_manual_suite_server_env_is_oauth_only(tmp_path) -> None:
-    config = SuiteConfig(
+def _suite_config() -> SuiteConfig:
+    return SuiteConfig(
         server_command=("python", "-m", "imap_smtp_mcp.server"),
         host="127.0.0.1",
         port=8123,
@@ -42,14 +43,215 @@ def test_manual_suite_server_env_is_oauth_only(tmp_path) -> None:
         trash_folder="Trash",
         poll_attempts=1,
         poll_interval_seconds=1,
+        http_timeout_seconds=120,
         use_existing_server=False,
     )
+
+
+def _suite_config_with_poll_attempts(attempts: int) -> SuiteConfig:
+    return SuiteConfig(**{**_suite_config().__dict__, "poll_attempts": attempts})
+
+
+def test_manual_suite_server_env_is_oauth_only(tmp_path) -> None:
+    config = _suite_config()
     env = _server_env(config, str(tmp_path))
 
     assert env["APP_DATA_DIR"] == str(tmp_path / "data")
     assert env["OAUTH_STORE_PATH"] == str(tmp_path / "data" / "oauth.sqlite3")
     assert "MCP_" + "ALLOWED_USERS" not in env
     assert "USER_OAUTH_" + "IMAP_USERNAME" not in env
+    assert str(ROOT / "src") in env["PYTHONPATH"].split(os.pathsep)
+
+
+def test_manual_suite_server_env_preserves_existing_pythonpath(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/existing/path")
+    env = _server_env(_suite_config(), str(tmp_path))
+
+    assert env["PYTHONPATH"].split(os.pathsep)[:2] == [str(ROOT / "src"), "/existing/path"]
+
+
+def test_manual_suite_http_timeout_default_and_override(monkeypatch) -> None:
+    monkeypatch.delenv("MCP_COMPAT_HTTP_TIMEOUT_SECONDS", raising=False)
+    assert manual_suite._http_timeout_seconds() == 120
+
+    monkeypatch.setenv("MCP_COMPAT_HTTP_TIMEOUT_SECONDS", "45")
+    assert manual_suite._http_timeout_seconds() == 45
+
+
+def test_wait_ready_reports_redacted_server_output() -> None:
+    secret = "super-secret-password"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('stdout super-secret-password'); print('stderr super-secret-password', file=sys.stderr); raise SystemExit(1)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        manual_suite._wait_ready("http://127.0.0.1:1", proc, (secret,))
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "MCP server exited early with status 1" in message
+        assert "server stdout:" in message
+        assert "server stderr:" in message
+        assert "[REDACTED]" in message
+        assert secret not in message
+
+
+def test_oauth_token_uses_csrf_authorize_form(monkeypatch) -> None:
+    calls: list[tuple[str, str, object]] = []
+
+    def fake_json(method, url, payload, *, headers=None):
+        calls.append((method, url, payload))
+        return {"client_id": "client-1"}
+
+    def fake_raw(method, url, body, *, headers=None):
+        calls.append((method, url, headers))
+        assert method == "GET"
+        assert url.startswith("http://127.0.0.1:8123/oauth/authorize?")
+        return 200, {"set-cookie": "oauth_authorize_csrf=cookie-token.sig; Path=/oauth/authorize"}, '<input type="hidden" name="csrf_token" value="form-token">'
+
+    def fake_form(method, url, form, *, headers=None):
+        calls.append((method, url, {"form": form, "headers": headers}))
+        if url.startswith("http://127.0.0.1:8123/oauth/authorize?"):
+            assert form["csrf_token"] == "form-token"
+            assert headers == {"Cookie": "oauth_authorize_csrf=cookie-token.sig"}
+            return 302, {"location": "https://chatgpt.com/connector/oauth/manual-compat?code=code-1&state=manual"}, ""
+        assert url == "http://127.0.0.1:8123/oauth/token"
+        assert form["code"] == "code-1"
+        return 200, {}, '{"access_token":"access-1"}'
+
+    monkeypatch.setattr(manual_suite, "_request_json", fake_json)
+    monkeypatch.setattr(manual_suite, "_request_raw", fake_raw)
+    monkeypatch.setattr(manual_suite, "_request_form", fake_form)
+
+    assert manual_suite._oauth_token(_suite_config()) == "access-1"
+    assert [call[0] for call in calls] == ["POST", "GET", "POST", "POST"]
+
+
+def test_oauth_token_requires_csrf_cookie(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite, "_request_json", lambda *args, **kwargs: {"client_id": "client-1"})
+    monkeypatch.setattr(manual_suite, "_request_raw", lambda *args, **kwargs: (200, {}, '<input type="hidden" name="csrf_token" value="form-token">'))
+
+    try:
+        manual_suite._oauth_token(_suite_config())
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "CSRF cookie" in str(exc)
+
+
+def test_oauth_token_requires_hidden_csrf_token(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite, "_request_json", lambda *args, **kwargs: {"client_id": "client-1"})
+    monkeypatch.setattr(
+        manual_suite,
+        "_request_raw",
+        lambda *args, **kwargs: (200, {"set-cookie": "oauth_authorize_csrf=cookie-token.sig; Path=/oauth/authorize"}, "<html></html>"),
+    )
+
+    try:
+        manual_suite._oauth_token(_suite_config())
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "CSRF token" in str(exc)
+
+
+class FakeManualClient:
+    def __init__(self, search_results: list[list[str]] | None = None, folders: list[str] | None = None) -> None:
+        self.search_results = search_results or [["10"], ["11"], ["12"], ["21"], ["31"]]
+        self.folders = folders or ["INBOX", "MCP_TEST", "Trash"]
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def call_tool(self, name: str, arguments: dict[str, object]):
+        self.calls.append((name, arguments))
+        if name == "list_folders":
+            return self.folders
+        if name == "send_email":
+            return {"sent": True}
+        if name == "search_emails":
+            return {"uids": self.search_results.pop(0)}
+        if name == "list_emails":
+            return [{"uid": "10"}]
+        if name == "read_email":
+            return {"from_address": "test@example.com", "body_text": f"manual compatibility test marker: {arguments.get('marker', '')}"}
+        if name in {"copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash"}:
+            return {"ok": True}
+        raise AssertionError(f"Unexpected tool: {name}")
+
+
+def test_find_marker_uid_retries_and_uses_latest_uid(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
+    config = _suite_config_with_poll_attempts(2)
+    client = FakeManualClient(search_results=[[], ["3", "8"]])
+
+    assert manual_suite._find_marker_uid(client, "INBOX", "marker-1", config, step="copy_email") == "8"
+    assert [call[0] for call in client.calls] == ["search_emails", "search_emails"]
+
+
+def test_find_marker_uid_exhaustion_names_step_and_folder(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
+    config = _suite_config()
+    client = FakeManualClient(search_results=[[], []])
+
+    try:
+        manual_suite._find_marker_uid(client, "INBOX", "marker-1", config, step="move_email")
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "move_email" in message
+        assert "INBOX" in message
+        assert "marker-1" in message
+
+
+def test_run_mail_flow_checks_required_folders_before_send(monkeypatch) -> None:
+    monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
+    client = FakeManualClient(folders=["INBOX", "Trash"])
+
+    try:
+        manual_suite._run_mail_flow(client, _suite_config())
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "Required folders missing from mailbox: MCP_TEST" in str(exc)
+    assert [call[0] for call in client.calls] == ["list_folders"]
+
+
+def test_run_mail_flow_resolves_uid_before_copy_and_move(monkeypatch) -> None:
+    marker = "mcp-compat-1234567890-abc123"
+    monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(manual_suite.time, "time", lambda: 1234567890)
+    monkeypatch.setattr(manual_suite.secrets, "token_hex", lambda *_: "abc123")
+
+    class FlowClient(FakeManualClient):
+        def call_tool(self, name: str, arguments: dict[str, object]):
+            self.calls.append((name, arguments))
+            if name == "list_folders":
+                return self.folders
+            if name == "send_email":
+                return {"sent": True}
+            if name == "search_emails":
+                return {"uids": self.search_results.pop(0)}
+            if name == "list_emails":
+                return [{"uid": "initial"}]
+            if name == "read_email":
+                return {"from_address": "test@example.com", "body_text": marker}
+            if name in {"copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash"}:
+                return {"ok": True}
+            raise AssertionError(f"Unexpected tool: {name}")
+
+    client = FlowClient(search_results=[["initial"], ["copy-fresh"], ["move-fresh"], ["test-folder-uid"], ["trash-uid"]])
+    manual_suite._run_mail_flow(client, _suite_config())
+
+    copy_call = next(args for name, args in client.calls if name == "copy_email")
+    move_call = next(args for name, args in client.calls if name == "move_email")
+    assert copy_call["uid"] == "copy-fresh"
+    assert move_call["uid"] == "move-fresh"
+    search_calls = [args for name, args in client.calls if name == "search_emails"]
+    assert len(search_calls) >= 5
+    assert all(json.dumps(args).find("mcp-compat-1234567890-abc123") >= 0 for args in search_calls)
 
 
 def test_manual_suite_test_imports_with_src_only_pythonpath() -> None:

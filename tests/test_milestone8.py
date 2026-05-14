@@ -22,6 +22,7 @@ def test_disabled_action_returns_permission_error() -> None:
         imap_tls_verify=True,
         imap_tls_ca_bundle_path=None,
         imap_max_retries=2,
+        smtp_timeout_seconds=30,
         action_flags={"send_email": False},
         audit_log_dir="/tmp/audit",
     )

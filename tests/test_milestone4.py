@@ -74,15 +74,20 @@ def config(monkeypatch):
 def test_smtp_adapter_ssl_and_port(config):
     seen = {}
 
-    def smtp_ssl_factory(host, port, context):
+    def smtp_ssl_factory(host, port, *, timeout, context):
         seen["host"] = host
         seen["port"] = port
+        seen["timeout"] = timeout
+        seen["context"] = context
         return FakeSmtpClient()
 
     adapter = SmtpAdapter(config, smtp_ssl_factory=smtp_ssl_factory)
     client = adapter.connect("user", "pass")
     assert isinstance(client, FakeSmtpClient)
-    assert seen == {"host": "smtp.example.com", "port": 465}
+    assert seen["host"] == "smtp.example.com"
+    assert seen["port"] == 465
+    assert seen["timeout"] == 30
+    assert isinstance(seen["context"], ssl.SSLContext)
 
 
 def test_smtp_adapter_starttls(config):
@@ -90,13 +95,31 @@ def test_smtp_adapter_starttls(config):
     cfg = load_config()
     client = FakeSmtpClient()
 
-    adapter = SmtpAdapter(cfg, smtp_starttls_factory=lambda h, p: client)
+    seen = {}
+
+    def starttls_factory(host, port, *, timeout):
+        seen["host"] = host
+        seen["port"] = port
+        seen["timeout"] = timeout
+        return client
+
+    adapter = SmtpAdapter(cfg, smtp_starttls_factory=starttls_factory)
     adapter.connect("user", "pass")
     assert client.started_tls
+    assert seen == {"host": "smtp.example.com", "port": 465, "timeout": 30}
+
+
+def test_smtp_timeout_must_be_positive(monkeypatch):
+    for k, v in _base_env().items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("SMTP_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValueError, match="SMTP_TIMEOUT_SECONDS must be > 0"):
+        load_config()
 
 
 def test_smtp_tls_failure(config):
-    def smtp_ssl_factory(host, port, context):
+    def smtp_ssl_factory(host, port, *, timeout, context):
         raise ssl.SSLError("bad cert")
 
     adapter = SmtpAdapter(config, smtp_ssl_factory=smtp_ssl_factory)
@@ -107,7 +130,7 @@ def test_smtp_tls_failure(config):
 def test_send_email_flag_blocked(config):
     os.environ["ACTION_SEND_EMAIL"] = "false"
     cfg = load_config()
-    service = SendEmailService(SmtpAdapter(cfg, smtp_ssl_factory=lambda *_: FakeSmtpClient()), ImapAdapter(cfg), cfg)
+    service = SendEmailService(SmtpAdapter(cfg, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()), ImapAdapter(cfg), cfg)
     with pytest.raises(PermissionDisabledError, match="Action disabled: send_email"):
         service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "s", "b")
 
@@ -116,8 +139,8 @@ def test_send_email_append_default_and_disable(config):
     smtp_client = FakeSmtpClient()
     imap_client = FakeImapClient()
     service = SendEmailService(
-        SmtpAdapter(config, smtp_ssl_factory=lambda *_: smtp_client),
-        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: imap_client),
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: imap_client),
         config,
     )
     service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
@@ -126,8 +149,8 @@ def test_send_email_append_default_and_disable(config):
 
     imap_client2 = FakeImapClient()
     service2 = SendEmailService(
-        SmtpAdapter(config, smtp_ssl_factory=lambda *_: FakeSmtpClient()),
-        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: imap_client2),
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: imap_client2),
         config,
     )
     service2.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body", append_to_sent=False)
@@ -140,8 +163,8 @@ def test_send_email_append_failure_is_clear(config):
             raise RuntimeError("append failed")
 
     service = SendEmailService(
-        SmtpAdapter(config, smtp_ssl_factory=lambda *_: FakeSmtpClient()),
-        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: BrokenImap()),
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: BrokenImap()),
         config,
     )
     with pytest.raises(BackendUnavailableError, match="Email sent but failed to append to sent folder"):
@@ -149,7 +172,7 @@ def test_send_email_append_failure_is_clear(config):
 
 
 def test_send_email_invalid_addresses(config):
-    service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=lambda *_: FakeSmtpClient()), ImapAdapter(config), config)
+    service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()), ImapAdapter(config), config)
     with pytest.raises(InvalidInputError, match="invalid from address"):
         service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "nope", ("bob@example.com",), "s", "b")
     with pytest.raises(InvalidInputError, match="invalid recipient address"):
@@ -157,7 +180,7 @@ def test_send_email_invalid_addresses(config):
 
 
 def test_send_email_smtp_failure_maps_backend_unavailable(config):
-    def smtp_ssl_factory(*_):
+    def smtp_ssl_factory(*_args, **_kwargs):
         raise OSError("down")
 
     service = SendEmailService(SmtpAdapter(config, smtp_ssl_factory=smtp_ssl_factory), ImapAdapter(config), config)
@@ -173,7 +196,7 @@ def test_send_email_uses_separate_imap_and_smtp_credentials(config):
     class CapturingSmtpClient(FakeSmtpClient):
         pass
 
-    def smtp_factory(*_):
+    def smtp_factory(*_args, **_kwargs):
         return CapturingSmtpClient()
 
     class CapturingImapClient(FakeImapClient):
@@ -182,7 +205,7 @@ def test_send_email_uses_separate_imap_and_smtp_credentials(config):
             seen["imap_pass"] = password
             return super().login(user, password)
 
-    def imap_factory(host, port, context):
+    def imap_factory(host, port, *, ssl_context):
         return CapturingImapClient()
 
     service = SendEmailService(
@@ -206,8 +229,8 @@ def test_send_email_uses_separate_imap_and_smtp_credentials(config):
 def test_send_email_uses_from_display_name(config):
     smtp_client = FakeSmtpClient()
     service = SendEmailService(
-        SmtpAdapter(config, smtp_ssl_factory=lambda *_: smtp_client),
-        ImapAdapter(config, imap_ssl_factory=lambda h, p, c: FakeImapClient()),
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
         config,
     )
     service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Subject", "Body", from_display_name="Alice Sender")

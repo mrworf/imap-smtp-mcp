@@ -31,8 +31,8 @@ class SmtpClient:
     def quit(self) -> tuple[int, bytes]: ...
 
 
-SmtpSslFactory = Callable[[str, int, ssl.SSLContext], SmtpClient]
-SmtpStartTlsFactory = Callable[[str, int], SmtpClient]
+SmtpSslFactory = Callable[..., SmtpClient]
+SmtpStartTlsFactory = Callable[..., SmtpClient]
 
 
 class SmtpAdapter:
@@ -58,9 +58,18 @@ class SmtpAdapter:
         context = self.create_ssl_context()
         try:
             if self._config.smtp.mode == ProtocolMode.SSL:
-                client = self._smtp_ssl_factory(self._config.smtp.host, self._config.smtp.port, context)
+                client = self._smtp_ssl_factory(
+                    self._config.smtp.host,
+                    self._config.smtp.port,
+                    timeout=self._config.smtp_timeout_seconds,
+                    context=context,
+                )
             else:
-                client = self._smtp_starttls_factory(self._config.smtp.host, self._config.smtp.port)
+                client = self._smtp_starttls_factory(
+                    self._config.smtp.host,
+                    self._config.smtp.port,
+                    timeout=self._config.smtp_timeout_seconds,
+                )
                 client.starttls(context=context)
             client.login(username, password)
             return client

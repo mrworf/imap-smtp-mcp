@@ -35,7 +35,7 @@ class ImapClient(Protocol):
     def logout(self) -> tuple[str, list[bytes]]: ...
 
 
-ImapFactory = Callable[[str, int, ssl.SSLContext], ImapClient]
+ImapFactory = Callable[..., ImapClient]
 StartTlsFactory = Callable[[str, int], ImapClient]
 
 
@@ -74,7 +74,7 @@ class ImapAdapter:
         for _ in range(retries + 1):
             try:
                 if self._config.imap.mode == ProtocolMode.SSL:
-                    client = self._imap_ssl_factory(self._config.imap.host, self._config.imap.port, context)
+                    client = self._imap_ssl_factory(self._config.imap.host, self._config.imap.port, ssl_context=context)
                 else:
                     client = self._imap_starttls_factory(self._config.imap.host, self._config.imap.port)
                     client.starttls(context)
@@ -95,7 +95,7 @@ class ImapAdapter:
         parsed: list[str] = []
         for item in folders_raw:
             decoded = item.decode("utf-8", errors="replace")
-            parsed.append(decoded.rsplit(' "', 1)[-1].rstrip('"'))
+            parsed.append(_parse_list_folder_name(decoded))
         return tuple(parsed)
 
     def resolve_configured_folders(self, client: ImapClient) -> ResolvedFolders:
@@ -112,3 +112,12 @@ class ImapAdapter:
             sent_folder=self._config.sent_folder,
             trash_folder=self._config.trash_folder,
         )
+
+
+def _parse_list_folder_name(decoded: str) -> str:
+    value = decoded.strip()
+    if value.endswith('"'):
+        start = value.rfind(' "')
+        if start >= 0:
+            return value[start + 2 : -1]
+    return value.rsplit(" ", 1)[-1].strip('"')

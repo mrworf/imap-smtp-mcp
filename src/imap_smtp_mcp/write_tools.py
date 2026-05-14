@@ -31,6 +31,15 @@ class WriteMailboxService:
         if status != "OK":
             raise NotFoundError(f"Folder not found: {folder}")
 
+    def _ensure_uid_exists(self, client, uid: str) -> None:
+        status, data = client.uid("fetch", uid, "(UID)")
+        if status != "OK" or not data or data[0] is None:
+            raise NotFoundError(f"Email not found: {uid}")
+
+    def _ensure_folder_exists(self, client, folder: str) -> None:
+        if folder not in self._imap_adapter.list_folders(client):
+            raise NotFoundError(f"Folder not found: {folder}")
+
     def mark_read_state(self, username: str, password: str, folder: str, uid: str, is_read: bool) -> None:
         self._enforce_action("mark_read_state")
         folder_name = self._validate_single_line("folder", folder)
@@ -39,6 +48,7 @@ class WriteMailboxService:
         try:
             client = self._imap_adapter.connect(username, password)
             self._select_folder(client, folder_name)
+            self._ensure_uid_exists(client, uid_value)
             status, _ = client.uid("store", uid_value, flag_op, "(\\Seen)")
             if status != "OK":
                 raise NotFoundError(f"Email not found: {uid_value}")
@@ -60,9 +70,11 @@ class WriteMailboxService:
         try:
             client = self._imap_adapter.connect(username, password)
             self._select_folder(client, src)
+            self._ensure_uid_exists(client, uid_value)
+            self._ensure_folder_exists(client, dst)
             status, _ = client.uid("copy", uid_value, dst)
             if status != "OK":
-                raise NotFoundError(f"Email not found: {uid_value}")
+                raise BackendUnavailableError("Failed to copy email")
             if is_move:
                 delete_status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
                 if delete_status != "OK":
@@ -80,6 +92,7 @@ class WriteMailboxService:
         try:
             client = self._imap_adapter.connect(username, password)
             self._select_folder(client, folder_name)
+            self._ensure_uid_exists(client, uid_value)
             status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
             if status != "OK":
                 raise NotFoundError(f"Email not found: {uid_value}")

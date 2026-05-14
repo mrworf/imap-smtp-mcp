@@ -50,7 +50,7 @@ def test_imap_ssl_mode_and_nonstandard_port_used(base_env):
     config = load_config()
     captured = {}
 
-    def fake_ssl_factory(host, port, ssl_context):
+    def fake_ssl_factory(host, port, *, ssl_context):
         captured["host"] = host
         captured["port"] = port
         captured["context"] = ssl_context
@@ -84,7 +84,7 @@ def test_imap_starttls_upgrade_path_used(base_env, monkeypatch):
 def test_tls_verification_failure_surfaces_secure_error(base_env):
     config = load_config()
 
-    def failing_ssl_factory(host, port, ssl_context):
+    def failing_ssl_factory(host, port, *, ssl_context):
         raise ssl.SSLError("certificate verify failed")
 
     adapter = ImapAdapter(config=config, imap_ssl_factory=failing_ssl_factory)
@@ -103,6 +103,20 @@ def test_folder_listing_and_resolution_success(base_env):
     assert resolved.trash_folder == "Trash"
 
 
+def test_folder_listing_parses_unquoted_names(base_env):
+    config = load_config()
+    client = FakeImapClient(
+        folders=[
+            b'(\\HasNoChildren) "." Sent',
+            b'(\\HasNoChildren) "." Drafts',
+            b'(\\HasNoChildren) "." INBOX',
+        ]
+    )
+    adapter = ImapAdapter(config=config)
+
+    assert adapter.list_folders(client) == ("Sent", "Drafts", "INBOX")
+
+
 def test_configured_folder_missing_fails_deterministically(base_env):
     config = load_config()
     adapter = ImapAdapter(config=config)
@@ -113,7 +127,7 @@ def test_configured_folder_missing_fails_deterministically(base_env):
 def test_imap_retries_exhausted(base_env):
     config = load_config()
 
-    def always_fails(host, port, ssl_context):
+    def always_fails(host, port, *, ssl_context):
         raise OSError("no route")
 
     adapter = ImapAdapter(config=config, imap_ssl_factory=always_fails)

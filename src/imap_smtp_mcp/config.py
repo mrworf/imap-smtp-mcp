@@ -61,6 +61,7 @@ class AppConfig:
     imap_tls_verify: bool
     imap_tls_ca_bundle_path: str | None
     imap_max_retries: int
+    smtp_timeout_seconds: int
     action_flags: dict[str, bool]
     audit_log_dir: str
     app_data_dir: str = "/var/lib/imap-smtp-mcp"
@@ -234,6 +235,9 @@ def load_config() -> AppConfig:
     imap_max_retries = _parse_int("IMAP_MAX_RETRIES", 2)
     if imap_max_retries < 0:
         raise ConfigError("IMAP_MAX_RETRIES must be >= 0")
+    smtp_timeout_seconds = _parse_int("SMTP_TIMEOUT_SECONDS", 30)
+    if smtp_timeout_seconds <= 0:
+        raise ConfigError("SMTP_TIMEOUT_SECONDS must be > 0")
 
     actions = {
         "list_folders": _parse_bool("ACTION_LIST_FOLDERS", True),
@@ -257,6 +261,7 @@ def load_config() -> AppConfig:
         imap_tls_verify=imap_tls_verify,
         imap_tls_ca_bundle_path=os.getenv("IMAP_TLS_CA_BUNDLE_PATH"),
         imap_max_retries=imap_max_retries,
+        smtp_timeout_seconds=smtp_timeout_seconds,
         action_flags=actions,
         audit_log_dir=_require("AUDIT_LOG_DIR"),
         app_data_dir=app_data_dir,

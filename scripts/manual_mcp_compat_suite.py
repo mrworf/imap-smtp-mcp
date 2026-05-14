@@ -11,6 +11,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -23,6 +24,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 REQUIRED_CONFIRMATION = "I UNDERSTAND THIS WILL MODIFY MAIL"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(ROOT, "src")
+SECRET_ENV_MARKERS = ("PASSWORD", "SECRET", "TOKEN", "KEY")
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,7 @@ class SuiteConfig:
     trash_folder: str
     poll_attempts: int
     poll_interval_seconds: int
+    http_timeout_seconds: int
     use_existing_server: bool
 
 
@@ -102,6 +107,22 @@ def _extract_email_address(value: str) -> str:
     return addr or value
 
 
+def _require_folders(folders: Any, required: tuple[str, ...]) -> None:
+    available = set(str(folder) for folder in folders) if isinstance(folders, list) else set()
+    missing = [folder for folder in required if folder not in available]
+    if missing:
+        raise RuntimeError(f"Required folders missing from mailbox: {', '.join(missing)}")
+
+
+def _find_marker_uid(client: MCPClient, folder: str, marker: str, args: SuiteConfig, *, step: str, limit: int = 20) -> str:
+    for _ in range(args.poll_attempts):
+        uids = _extract_uids(client.call_tool("search_emails", {"folder": folder, "query": marker, "limit": limit}))
+        if uids:
+            return uids[-1]
+        time.sleep(args.poll_interval_seconds)
+    raise RuntimeError(f"Could not find marker UID for {step} in folder {folder}: {marker}")
+
+
 def _env_required(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -139,6 +160,7 @@ def load_suite_config() -> SuiteConfig:
         trash_folder=_env_required("MCP_COMPAT_TRASH_FOLDER"),
         poll_attempts=_env_int("MCP_COMPAT_POLL_ATTEMPTS", 10),
         poll_interval_seconds=_env_int("MCP_COMPAT_POLL_INTERVAL_SECONDS", 3),
+        http_timeout_seconds=_env_int("MCP_COMPAT_HTTP_TIMEOUT_SECONDS", 120),
         use_existing_server=os.getenv("MCP_COMPAT_USE_EXISTING_SERVER", "").lower() in {"1", "true", "yes", "on"},
     )
 
@@ -147,6 +169,7 @@ def _server_env(config: SuiteConfig, audit_dir: str) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
+            "PYTHONPATH": _pythonpath(env),
             "MCP_HOST": config.host,
             "MCP_PORT": str(config.port),
             "MCP_PUBLIC_BASE_URL": config.public_base_url,
@@ -166,17 +189,26 @@ def _server_env(config: SuiteConfig, audit_dir: str) -> dict[str, str]:
     return env
 
 
+def _pythonpath(env: dict[str, str]) -> str:
+    existing = env.get("PYTHONPATH")
+    if existing:
+        return os.pathsep.join((SRC_DIR, existing))
+    return SRC_DIR
+
+
 def _fernet_key() -> str:
     raw = secrets.token_bytes(32)
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
-def _wait_ready(base_url: str, proc: subprocess.Popen[str]) -> None:
+def _wait_ready(base_url: str, proc: subprocess.Popen[str], redaction_values: tuple[str, ...] = ()) -> None:
     deadline = time.time() + 20
     last_error: Exception | None = None
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"MCP server exited early with status {proc.returncode}")
+            output = _process_output_tail(proc, redaction_values)
+            details = f"\n{output}" if output else ""
+            raise RuntimeError(f"MCP server exited early with status {proc.returncode}{details}")
         try:
             ready = _request_json("GET", f"{base_url}/readyz", None)
             if ready.get("ready") is True:
@@ -187,27 +219,58 @@ def _wait_ready(base_url: str, proc: subprocess.Popen[str]) -> None:
     raise RuntimeError(f"MCP server did not become ready: {last_error}")
 
 
+def _process_output_tail(proc: subprocess.Popen[str], redaction_values: tuple[str, ...]) -> str:
+    try:
+        stdout, stderr = proc.communicate(timeout=1)
+    except subprocess.TimeoutExpired:
+        return "server output unavailable: process did not finish flushing stdout/stderr"
+    lines: list[str] = []
+    if stdout:
+        lines.append("server stdout:")
+        lines.extend(stdout.strip().splitlines()[-20:])
+    if stderr:
+        lines.append("server stderr:")
+        lines.extend(stderr.strip().splitlines()[-20:])
+    return _redact("\n".join(lines), redaction_values)[-4000:]
+
+
+def _redaction_values(env: dict[str, str]) -> tuple[str, ...]:
+    return tuple(
+        value
+        for key, value in env.items()
+        if value and len(value) >= 4 and any(marker in key.upper() for marker in SECRET_ENV_MARKERS)
+    )
+
+
+def _redact(value: str, secrets_to_redact: tuple[str, ...]) -> str:
+    redacted = value
+    for secret in sorted(set(secrets_to_redact), key=len, reverse=True):
+        redacted = redacted.replace(secret, "[REDACTED]")
+    return redacted
+
+
 def _request_json(method: str, url: str, payload: dict[str, Any] | None, *, headers: dict[str, str] | None = None) -> dict[str, Any]:
-    parsed = urlparse(url)
-    conn = _http_connection(parsed)
     body = None if payload is None else json.dumps(payload)
     request_headers = {"Content-Type": "application/json"}
     if headers:
         request_headers.update(headers)
-    conn.request(method, parsed.path or "/", body=body, headers=request_headers)
-    resp = conn.getresponse()
-    raw = resp.read().decode("utf-8")
-    conn.close()
-    if resp.status >= 400:
-        raise RuntimeError(f"{method} {url} failed with HTTP {resp.status}: {raw}")
+    status, _, raw = _request_raw(method, url, body, headers=request_headers)
+    if status >= 400:
+        raise RuntimeError(f"{method} {url} failed with HTTP {status}: {raw}")
     return json.loads(raw or "{}")
 
 
-def _request_form(method: str, url: str, form: dict[str, str]) -> tuple[int, dict[str, str], str]:
+def _request_form(method: str, url: str, form: dict[str, str], *, headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], str]:
+    request_headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    if headers:
+        request_headers.update(headers)
+    return _request_raw(method, url, urlencode(form), headers=request_headers)
+
+
+def _request_raw(method: str, url: str, body: str | None, *, headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], str]:
     parsed = urlparse(url)
-    path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
     conn = _http_connection(parsed)
-    conn.request(method, path, body=urlencode(form), headers={"Content-Type": "application/x-www-form-urlencoded"})
+    conn.request(method, _path_with_query(parsed), body=body, headers=headers or {})
     resp = conn.getresponse()
     raw = resp.read().decode("utf-8")
     headers = {key.lower(): value for key, value in resp.getheaders()}
@@ -216,10 +279,19 @@ def _request_form(method: str, url: str, form: dict[str, str]) -> tuple[int, dic
     return status, headers, raw
 
 
+def _path_with_query(parsed) -> str:
+    path = parsed.path or "/"
+    return path + (f"?{parsed.query}" if parsed.query else "")
+
+
 def _http_connection(parsed):
     conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    return conn_cls(parsed.hostname, port, timeout=20)
+    return conn_cls(parsed.hostname, port, timeout=_http_timeout_seconds())
+
+
+def _http_timeout_seconds() -> int:
+    return _env_int("MCP_COMPAT_HTTP_TIMEOUT_SECONDS", 120)
 
 
 def _oauth_token(config: SuiteConfig) -> str:
@@ -242,15 +314,23 @@ def _oauth_token(config: SuiteConfig) -> str:
             "state": "manual",
         }
     )
+    authorize_url = f"{config.public_base_url}/oauth/authorize?{query}"
+    status, headers, body = _request_raw("GET", authorize_url, None)
+    if status != 200:
+        raise RuntimeError(f"OAuth authorize form failed with HTTP {status}: {body}")
+    csrf_cookie = _authorize_csrf_cookie(headers)
+    csrf_token = _csrf_token_from_html(body)
     status, headers, body = _request_form(
         "POST",
-        f"{config.public_base_url}/oauth/authorize?{query}",
+        authorize_url,
         {
             "imap_username": config.imap_username,
             "imap_password": config.imap_password,
             "smtp_username": config.smtp_username,
             "smtp_password": config.smtp_password,
+            "csrf_token": csrf_token,
         },
+        headers={"Cookie": csrf_cookie},
     )
     if status != 302:
         raise RuntimeError(f"OAuth authorization failed with HTTP {status}: {body}")
@@ -271,6 +351,21 @@ def _oauth_token(config: SuiteConfig) -> str:
     return str(json.loads(token[2])["access_token"])
 
 
+def _authorize_csrf_cookie(headers: dict[str, str]) -> str:
+    raw_cookie = headers.get("set-cookie", "")
+    match = re.search(r"(oauth_authorize_csrf=[^;]+)", raw_cookie)
+    if not match:
+        raise RuntimeError("OAuth authorize form did not return CSRF cookie")
+    return match.group(1)
+
+
+def _csrf_token_from_html(body: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', body)
+    if not match:
+        raise RuntimeError("OAuth authorize form did not include CSRF token")
+    return match.group(1)
+
+
 def run_suite() -> None:
     _manual_gate()
     config = load_suite_config()
@@ -280,15 +375,16 @@ def run_suite() -> None:
         _run_mail_flow(MCPClient(config.public_base_url, token), config)
         return
     with tempfile.TemporaryDirectory(prefix="imap-smtp-mcp-audit-") as audit_dir:
+        env = _server_env(config, audit_dir)
         proc = subprocess.Popen(
             config.server_command,
-            env=_server_env(config, audit_dir),
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         try:
-            _wait_ready(config.public_base_url, proc)
+            _wait_ready(config.public_base_url, proc, _redaction_values(env))
             token = _oauth_token(config)
             client = MCPClient(config.public_base_url, token)
             _run_mail_flow(client, config)
@@ -303,22 +399,16 @@ def run_suite() -> None:
 def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
     marker = f"mcp-compat-{int(time.time())}-{secrets.token_hex(3)}"
     print("[1/12] list_folders")
-    print(f"  folders response: {client.call_tool('list_folders', {})}")
+    folders = client.call_tool("list_folders", {})
+    print(f"  folders response: {folders}")
+    _require_folders(folders, (args.inbox_folder, args.test_folder, args.trash_folder))
 
     print("[2/12] send_email (self-addressed)")
     body = f"manual compatibility test marker: {marker}"
     client.call_tool("send_email", {"from_address": args.test_email, "to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
 
     print("[3/12] search_emails")
-    found_uid = None
-    for _ in range(args.poll_attempts):
-        uids = _extract_uids(client.call_tool("search_emails", {"folder": args.inbox_folder, "query": marker, "limit": 10}))
-        if uids:
-            found_uid = uids[-1]
-            break
-        time.sleep(args.poll_interval_seconds)
-    if not found_uid:
-        raise RuntimeError("Sent message was not discovered in inbox during polling window.")
+    found_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="initial inbox search", limit=10)
 
     print("[4/12] list_emails")
     listed = client.call_tool("list_emails", {"folder": args.inbox_folder, "offset": 0, "limit": 50})
@@ -333,9 +423,11 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
         raise RuntimeError(f"Unexpected sender address: {sender} != {args.test_email}")
 
     print("[6/12] copy_email")
-    client.call_tool("copy_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": found_uid})
+    copy_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="copy_email", limit=10)
+    client.call_tool("copy_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": copy_uid})
     print("[7/12] move_email")
-    client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": found_uid})
+    move_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="move_email", limit=10)
+    client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": args.test_folder, "uid": move_uid})
 
     print("[8/12] search copied/moved in test folder")
     moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.test_folder, "query": marker, "limit": 20}))

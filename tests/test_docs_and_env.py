@@ -16,6 +16,18 @@ def test_docs_describe_streamable_http_limitations() -> None:
         assert "Native stdio" in text
 
 
+def test_manual_suite_docs_describe_csrf_and_source_checkout_launch() -> None:
+    manual = (ROOT / "docs/manual_mcp_compat_suite.md").read_text(encoding="utf-8")
+
+    assert "CSRF-protected authorize form path" in manual
+    assert "GET /oauth/authorize" in manual
+    assert "POST /oauth/authorize" in manual
+    assert "PYTHONPATH" in manual
+    assert "src" in manual
+    assert "configured inbox, test folder, and trash folder exist" in manual
+    assert "re-searches for the unique per-run marker before copy and move" in manual
+
+
 def test_env_example_uses_oauth_only_persistent_config() -> None:
     env_example = (ROOT / "env.example").read_text(encoding="utf-8")
 
@@ -25,6 +37,7 @@ def test_env_example_uses_oauth_only_persistent_config() -> None:
     assert "OAUTH_COOKIE_SECRET=replace-with-long-random-csrf-cookie-signing-secret" in env_example
     assert "MCP_TLS_CERT_FILE=" in env_example
     assert "MCP_TLS_KEY_FILE=" in env_example
+    assert "SMTP_TIMEOUT_SECONDS=30" in env_example
     assert "MCP_" + "PRESHARED_KEY" not in env_example
     assert "MCP_" + "ALLOWED_USERS" not in env_example
     assert "USER_ALICE_" + "IMAP_USERNAME" not in env_example
