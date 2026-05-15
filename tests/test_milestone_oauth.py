@@ -267,6 +267,8 @@ def test_refresh_token_rotation_and_storage_redaction(oauth_env):
     assert rotated["refresh_token"] != refresh_token
     with pytest.raises(OAuthError, match="revoked"):
         service.exchange_code({"grant_type": "refresh_token", "client_id": str(client["client_id"]), "refresh_token": refresh_token})
+    with pytest.raises(OAuthError, match="Credential session is no longer available"):
+        service.authenticate_bearer(f"Bearer {rotated['access_token']}", required_scopes=("mail:read",))
 
     db_text = open(config.oauth.store_path, "rb").read().decode("latin1", errors="ignore")
     assert "imap-secret" not in db_text

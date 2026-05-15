@@ -598,6 +598,7 @@ class OAuthService:
         if record is None:
             raise OAuthError("invalid_grant", "Unknown refresh token")
         if record.revoked:
+            self.store.revoke_session(record.session_id)
             raise OAuthError("invalid_grant", "Refresh token has been revoked")
         if record.expires_at <= int(time.time()):
             raise OAuthError("invalid_grant", "Refresh token has expired")
