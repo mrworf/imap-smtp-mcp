@@ -9,6 +9,7 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 - Show emails from today in `INBOX` using an IMAP date range like `SINCE 13-May-2026 BEFORE 14-May-2026`, then summarize the senders and subjects.
 - Search `INBOX` for messages containing `invoice` and return up to 25 matches.
 - Read the message with UID `<uid>` from `INBOX`, limiting the body to 4000 characters.
+- Show the sender identity this connector will use for outgoing mail.
 
 ## Common Send And Organize Prompts
 
@@ -27,7 +28,7 @@ Use this prompt when you want ChatGPT to exercise all current MCP capabilities w
 ```text
 Run a safe IMAP/SMTP MCP smoke test against my mailbox.
 
-Use a unique marker like MCP-SMOKE-<timestamp>-<random>. First list_folders and confirm the configured INBOX and Trash folder names. Create a folder named MCP Smoke <marker>, then rename_folder it to MCP Smoke Renamed <marker>.
+Use a unique marker like MCP-SMOKE-<timestamp>-<random>. First get_sender_identity so you know the display name and outbound sender email, then list_folders and confirm the configured INBOX and Trash folder names. Create a folder named MCP Smoke <marker>, then rename_folder it to MCP Smoke Renamed <marker>.
 
 Send an email to my own outbound sender email with subject MCP Smoke <marker> and a short body containing the marker. Use search_emails in INBOX for the exact marker until the sent test message is visible, then list_emails in INBOX and read_email for only that matching UID.
 
@@ -38,4 +39,4 @@ For empty_trash, use a guarded skip: list or search Trash first, and call empty_
 Finally delete_folder MCP Smoke Renamed <marker> only after confirming it was created in this test and contains no non-test mail. Report each tool used and any skipped destructive step.
 ```
 
-Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `list_emails`, `read_email`, `send_email`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.
+Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `list_emails`, `read_email`, `get_sender_identity`, `send_email`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.

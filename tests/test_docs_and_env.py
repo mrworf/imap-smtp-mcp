@@ -141,6 +141,7 @@ def test_example_prompts_cover_common_and_full_capability_flows() -> None:
         "search_emails",
         "list_emails",
         "read_email",
+        "get_sender_identity",
         "send_email",
         "mark_read_state",
         "move_email",

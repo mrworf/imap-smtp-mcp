@@ -8,7 +8,7 @@ from imap_smtp_mcp.audit import AuditLogger
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
-from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
+from imap_smtp_mcp.tool_controller import SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
 
 @pytest.fixture
@@ -130,6 +130,12 @@ def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:
     assert "reply_to" not in schema["properties"]
 
 
+def test_sender_identity_tool_schema_scope_and_annotations() -> None:
+    assert TOOL_SCOPES["get_sender_identity"] == (SEND_SCOPE,)
+    assert TOOL_SCHEMAS["get_sender_identity"] == {"type": "object", "properties": {}, "additionalProperties": False}
+    assert _annotations_for("get_sender_identity") == {"readOnlyHint": True, "destructiveHint": False}
+
+
 def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
@@ -166,6 +172,27 @@ def test_folder_tool_dispatch_uses_session_credentials(controller_env, tmp_path)
         ("rename_folder", ("imap-user", "imap-pass", "New", "Renamed")),
         ("delete_folder", ("imap-user", "imap-pass", "Renamed")),
     ]
+
+
+def test_sender_identity_tool_returns_captured_identity(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+
+    result = controller.call_tool("get_sender_identity", {}, _credentials(), request_id="identity-1", subject="subject")
+
+    assert result == {"sender_display_name": "Test Sender", "sender_email": "sender@example.com"}
+
+
+def test_sender_identity_tool_requires_current_sender_identity(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_send = FakeSendService()
+    controller.send_service = fake_send
+
+    with pytest.raises(AuthSessionError, match="reauthorize to view sender identity"):
+        controller.call_tool("get_sender_identity", {}, _legacy_credentials(), request_id="identity-2", subject="subject")
+
+    assert fake_send.calls == []
 
 
 def test_send_tool_uses_session_sender_and_audits_spoof_attempt(controller_env, tmp_path) -> None:

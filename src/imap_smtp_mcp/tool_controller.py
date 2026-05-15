@@ -25,6 +25,7 @@ TOOL_SCOPES = {
     "search_emails": (READ_SCOPE,),
     "list_emails": (READ_SCOPE,),
     "read_email": (READ_SCOPE,),
+    "get_sender_identity": (SEND_SCOPE,),
     "send_email": (SEND_SCOPE,),
     "mark_read_state": (WRITE_SCOPE,),
     "move_email": (WRITE_SCOPE,),
@@ -59,6 +60,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["folder", "uid"],
         "properties": {"folder": {"type": "string"}, "uid": {"type": "string"}, "max_chars": {"type": "integer", "default": 20000}},
     },
+    "get_sender_identity": {"type": "object", "properties": {}, "additionalProperties": False},
     "send_email": {
         "type": "object",
         "required": ["to_addresses", "subject", "body_text"],
@@ -182,6 +184,10 @@ class MailToolController:
             out = _jsonify(result)
             out["truncated"] = len(result.body_text) >= int(args.get("max_chars", 20000))
             return out
+        if name == "get_sender_identity":
+            if not c.sender_email:
+                raise AuthSessionError("Sender identity is missing; reauthorize to view sender identity")
+            return {"sender_display_name": c.sender_display_name or "", "sender_email": c.sender_email}
         if name == "send_email":
             try:
                 ensure_action_enabled("send_email", self.config)
@@ -294,6 +300,7 @@ def _description_for(name: str) -> str:
         "search_emails": "Search emails in a folder and return matching IMAP UIDs.",
         "list_emails": "List email summaries in a folder with pagination.",
         "read_email": "Read one email by IMAP UID with bounded body text.",
+        "get_sender_identity": "Show the captured display name and outbound email address used for sent mail.",
         "send_email": "Send an email using the authenticated SMTP credentials.",
         "mark_read_state": "Mark an email read or unread.",
         "move_email": "Move an email from one folder to another.",
