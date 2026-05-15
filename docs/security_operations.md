@@ -15,6 +15,7 @@
 
 ## OAuth abuse controls
 - Configure `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` narrowly for the clients you expect, such as the ChatGPT connector redirect.
+- Review failed `oauth_register` audit events to see the attempted `redirect_uris` when tuning the allowlist.
 - Keep the local registration and authorize rate limits enabled even when a reverse proxy also rate-limits traffic.
 - Treat a refresh-token reuse error as a session compromise; the server revokes the credential session when reuse is detected.
 

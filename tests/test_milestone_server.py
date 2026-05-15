@@ -6,6 +6,7 @@ import http.client
 import json
 import re
 import threading
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -422,6 +423,25 @@ def test_register_rate_limit_blocks_storage_before_second_client(server_env, mon
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_register_audit_logs_redirect_uris_for_allowlist_tuning(http_server):
+    base_url, server = http_server
+    allowed = {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]}
+    rejected = {"redirect_uris": ["https://chatgpt.com/connector/oauth/actual-callback"]}
+
+    assert _request("POST", f"{base_url}/oauth/register", allowed)[0] == 201
+    status, _, raw = _request("POST", f"{base_url}/oauth/register", rejected)
+
+    assert status == 400
+    assert json.loads(raw)["error"] == "invalid_redirect_uri"
+    log_lines = (Path(server.config.audit_log_dir) / "system.log").read_text(encoding="utf-8").splitlines()
+    register_events = [json.loads(line) for line in log_lines if json.loads(line)["operation"] == "oauth_register"]
+    assert register_events[-2]["success"] is True
+    assert register_events[-2]["metadata"]["redirect_uris"] == ["https://chatgpt.com/connector/oauth/cb"]
+    assert register_events[-1]["success"] is False
+    assert register_events[-1]["failure_class"] == "invalid_redirect_uri"
+    assert register_events[-1]["metadata"]["redirect_uris"] == ["https://chatgpt.com/connector/oauth/actual-callback"]
 
 
 def test_authorize_post_rejects_pre_body_csrf_before_credential_auth(server_env):

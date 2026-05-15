@@ -26,6 +26,8 @@ JSON = "application/json; charset=utf-8"
 AUTHORIZE_CSRF_COOKIE = "oauth_authorize_csrf"
 MAX_FORM_BODY_BYTES = 16_384
 MAX_JSON_BODY_BYTES = 1_048_576
+MAX_AUDIT_REDIRECT_URIS = 10
+MAX_AUDIT_REDIRECT_URI_CHARS = 2048
 
 
 class StartupError(RuntimeError):
@@ -111,11 +113,12 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     def _handle_register(self) -> None:
+        payload: dict[str, Any] = {}
         try:
             self.server.rate_limiter.check_register(self.client_address[0])
             payload = self._read_json()
             response = self.server.oauth_service.register_client(payload)
-            self._audit_system("oauth_register", True)
+            self._audit_system("oauth_register", True, metadata=_register_audit_metadata(payload))
             self._send_json(response, status=HTTPStatus.CREATED)
         except RequestBodyError as exc:
             self._audit_system("oauth_register", False, "invalid_request")
@@ -124,7 +127,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._audit_system("oauth_register", False, "invalid_request")
             self._send_json({"error": "invalid_request", "error_description": "Malformed JSON request body"}, status=HTTPStatus.BAD_REQUEST)
         except OAuthError as exc:
-            self._audit_system("oauth_register", False, exc.error)
+            self._audit_system("oauth_register", False, exc.error, metadata=_register_audit_metadata(payload))
             self._send_oauth_error(exc, status=_oauth_error_status(exc))
 
     def _handle_authorize_get(self, raw_query: str) -> None:
@@ -316,8 +319,8 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
     def _send_oauth_error(self, exc: OAuthError, *, status: HTTPStatus) -> None:
         self._send_json({"error": exc.error, "error_description": exc.description}, status=status)
 
-    def _audit_system(self, operation: str, success: bool, failure_class: str | None = None, *, request_id: str = "") -> None:
-        self.server.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id or "-", operation=operation, success=success, failure_class=failure_class))
+    def _audit_system(self, operation: str, success: bool, failure_class: str | None = None, *, request_id: str = "", metadata: dict[str, Any] | None = None) -> None:
+        self.server.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id or "-", operation=operation, success=success, failure_class=failure_class, metadata=metadata))
 
 
 class OAuthRateLimiter:
@@ -374,6 +377,20 @@ class AuthorizeCsrfStore:
 def _single_value_query(raw: str) -> dict[str, str]:
     parsed = parse_qs(raw, keep_blank_values=True)
     return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+def _register_audit_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_redirects = payload.get("redirect_uris")
+    if not isinstance(raw_redirects, list):
+        return {"redirect_uri_count": 0}
+    redirects = [str(uri)[:MAX_AUDIT_REDIRECT_URI_CHARS] for uri in raw_redirects[:MAX_AUDIT_REDIRECT_URIS] if isinstance(uri, str)]
+    metadata: dict[str, Any] = {
+        "redirect_uri_count": len(raw_redirects),
+        "redirect_uris": redirects,
+    }
+    if len(raw_redirects) > MAX_AUDIT_REDIRECT_URIS:
+        metadata["redirect_uris_truncated"] = True
+    return metadata
 
 
 def _login_form(
