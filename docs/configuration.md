@@ -31,6 +31,10 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS`: access-token lifetime. Default: `3600`.
 - `OAUTH_AUTH_CODE_TTL_SECONDS`: authorization-code lifetime. Default: `300`.
 - `OAUTH_REFRESH_TOKEN_TTL_SECONDS`: refresh-token lifetime. Default: `2592000`.
+- `OAUTH_AUTHORIZE_RATE_LIMIT_ATTEMPTS`: authorize POST attempts allowed per IP, client ID, and IMAP username per window. Default: `5`.
+- `OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS`: authorize rate-limit window. Default: `900`.
+- `OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS`: client registration attempts allowed per IP per window. Default: `20`.
+- `OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS`: client registration rate-limit window. Default: `900`.
 - `OAUTH_USERNAME_CLAIM`: token claim used as the MCP user subject. Default: `sub`.
 
 ## IMAP

@@ -7,6 +7,8 @@ import json
 import secrets
 import ssl
 import sys
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address, ip_network
@@ -56,6 +58,7 @@ class MCPHTTPServer(ThreadingHTTPServer):
         self.oauth_service = oauth_service or OAuthService(config)
         self.tool_controller = tool_controller or MailToolController(config)
         self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir, debug_unredacted_logs=config.debug_unredacted_logs)
+        self.rate_limiter = OAuthRateLimiter(config)
 
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
@@ -107,6 +110,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_register(self) -> None:
         try:
+            self.server.rate_limiter.check_register(self.client_address[0])
             payload = self._read_json()
             response = self.server.oauth_service.register_client(payload)
             self._audit_system("oauth_register", True)
@@ -116,7 +120,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid_request", "error_description": exc.message}, status=exc.status)
         except OAuthError as exc:
             self._audit_system("oauth_register", False, exc.error)
-            self._send_oauth_error(exc, status=HTTPStatus.BAD_REQUEST)
+            self._send_oauth_error(exc, status=_oauth_error_status(exc))
 
     def _handle_authorize_get(self, raw_query: str) -> None:
         query = _single_value_query(raw_query)
@@ -148,6 +152,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             cookie_token = _verify_authorize_cookie_for_query(self.server.config, raw_query, self.headers.get("Cookie", ""))
             form = self._read_form()
             _verify_authorize_form_token(cookie_token, form.get("csrf_token", ""))
+            self.server.rate_limiter.check_authorize(self.client_address[0], query.get("client_id", ""), form.get("imap_username", ""))
             redirect = self.server.oauth_service.authorize_with_credentials(
                 query,
                 imap_username=form.get("imap_username", ""),
@@ -167,7 +172,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid_request", "error_description": exc.message}, status=exc.status)
         except OAuthError as exc:
             self._audit_system("oauth_authorize", False, exc.error)
-            self._send_oauth_error(exc, status=HTTPStatus.BAD_REQUEST)
+            self._send_oauth_error(exc, status=_oauth_error_status(exc))
 
     def _handle_token(self) -> None:
         try:
@@ -299,6 +304,34 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
     def _audit_system(self, operation: str, success: bool, failure_class: str | None = None, *, request_id: str = "") -> None:
         self.server.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id or "-", operation=operation, success=success, failure_class=failure_class))
+
+
+class OAuthRateLimiter:
+    def __init__(self, config: AppConfig) -> None:
+        self._authorize_attempts = config.oauth.authorize_rate_limit_attempts
+        self._authorize_window = config.oauth.authorize_rate_limit_window_seconds
+        self._register_attempts = config.oauth.register_rate_limit_attempts
+        self._register_window = config.oauth.register_rate_limit_window_seconds
+        self._lock = threading.RLock()
+        self._buckets: dict[tuple[str, str], tuple[int, float]] = {}
+
+    def check_register(self, client_ip: str) -> None:
+        self._check(("register-ip", client_ip), self._register_attempts, self._register_window)
+
+    def check_authorize(self, client_ip: str, client_id: str, imap_username: str) -> None:
+        username = imap_username.strip().lower() or "-"
+        for key in (("authorize-ip", client_ip), ("authorize-client", client_id or "-"), ("authorize-user", username)):
+            self._check(key, self._authorize_attempts, self._authorize_window)
+
+    def _check(self, key: tuple[str, str], limit: int, window_seconds: int) -> None:
+        now = time.monotonic()
+        with self._lock:
+            count, reset_at = self._buckets.get(key, (0, now + window_seconds))
+            if now >= reset_at:
+                count, reset_at = 0, now + window_seconds
+            if count >= limit:
+                raise OAuthError("slow_down", "Too many OAuth attempts; try again later")
+            self._buckets[key] = (count + 1, reset_at)
 
 
 def _single_value_query(raw: str) -> dict[str, str]:
@@ -644,6 +677,12 @@ def _bearer_challenge(config: AppConfig, exc: OAuthError) -> str:
         "error_description": exc.description,
     }
     return "Bearer " + ", ".join(f'{key}="{value}"' for key, value in params.items())
+
+
+def _oauth_error_status(exc: OAuthError) -> HTTPStatus:
+    if exc.error == "slow_down":
+        return HTTPStatus.TOO_MANY_REQUESTS
+    return HTTPStatus.BAD_REQUEST
 
 
 def is_trusted_proxy(config: AppConfig, client_ip: str) -> bool:

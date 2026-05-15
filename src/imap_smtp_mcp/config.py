@@ -37,6 +37,10 @@ class OAuthConfig:
     access_token_ttl_seconds: int = 3600
     authorization_code_ttl_seconds: int = 300
     refresh_token_ttl_seconds: int = 2_592_000
+    authorize_rate_limit_attempts: int = 5
+    authorize_rate_limit_window_seconds: int = 900
+    register_rate_limit_attempts: int = 20
+    register_rate_limit_window_seconds: int = 900
     required_scopes: tuple[str, ...] = ("mail:read", "mail:send", "mail:write")
     allowed_redirect_uri_patterns: tuple[str, ...] = ()
     username_claim: str = "sub"
@@ -198,12 +202,20 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
     access_ttl = _parse_int("OAUTH_ACCESS_TOKEN_TTL_SECONDS", 3600)
     code_ttl = _parse_int("OAUTH_AUTH_CODE_TTL_SECONDS", 300)
     refresh_ttl = _parse_int("OAUTH_REFRESH_TOKEN_TTL_SECONDS", 2_592_000)
+    authorize_limit = _parse_int("OAUTH_AUTHORIZE_RATE_LIMIT_ATTEMPTS", 5)
+    authorize_window = _parse_int("OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS", 900)
+    register_limit = _parse_int("OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS", 20)
+    register_window = _parse_int("OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS", 900)
     if access_ttl <= 0:
         raise ConfigError("OAUTH_ACCESS_TOKEN_TTL_SECONDS must be > 0")
     if code_ttl <= 0:
         raise ConfigError("OAUTH_AUTH_CODE_TTL_SECONDS must be > 0")
     if refresh_ttl <= 0:
         raise ConfigError("OAUTH_REFRESH_TOKEN_TTL_SECONDS must be > 0")
+    if authorize_limit <= 0 or authorize_window <= 0:
+        raise ConfigError("OAUTH_AUTHORIZE_RATE_LIMIT_ATTEMPTS and OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS must be > 0")
+    if register_limit <= 0 or register_window <= 0:
+        raise ConfigError("OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS and OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS must be > 0")
     store_path = os.getenv("OAUTH_STORE_PATH", str(Path(app_data_dir) / "oauth.sqlite3"))
     return OAuthConfig(
         public_base_url=public_base_url,
@@ -216,6 +228,10 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         access_token_ttl_seconds=access_ttl,
         authorization_code_ttl_seconds=code_ttl,
         refresh_token_ttl_seconds=refresh_ttl,
+        authorize_rate_limit_attempts=authorize_limit,
+        authorize_rate_limit_window_seconds=authorize_window,
+        register_rate_limit_attempts=register_limit,
+        register_rate_limit_window_seconds=register_window,
         required_scopes=_parse_scopes("OAUTH_REQUIRED_SCOPES", ("mail:read", "mail:send", "mail:write")),
         allowed_redirect_uri_patterns=_parse_patterns("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS"),
         username_claim=os.getenv("OAUTH_USERNAME_CLAIM", "sub"),

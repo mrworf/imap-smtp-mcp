@@ -315,6 +315,73 @@ def test_authorize_post_requires_matching_csrf_cookie(http_server):
     assert f"{AUTHORIZE_CSRF_COOKIE}=;" in ok[1]["set-cookie"]
 
 
+def test_authorize_post_rate_limit_blocks_before_credential_auth(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_AUTHORIZE_RATE_LIMIT_ATTEMPTS", "1")
+    config = load_config()
+    called = {"authorize": 0}
+
+    class CountingOAuth(OAuthService):
+        def authorize_with_credentials(self, *args, **kwargs):
+            called["authorize"] += 1
+            return super().authorize_with_credentials(*args, **kwargs)
+
+    oauth = CountingOAuth(config, imap_verifier=lambda *_: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+        client_id = json.loads(raw)["client_id"]
+        query = _authorize_query(client_id)
+        status, headers, html = _request("GET", f"{base_url}/oauth/authorize?{query}")
+        csrf_token = _csrf_token_from_html(html)
+        csrf_cookie = headers["set-cookie"].split(";", 1)[0]
+        form = {
+            "imap_username": "imap-user",
+            "imap_password": "imap-pass",
+            "smtp_username": "smtp-user",
+            "smtp_password": "smtp-pass",
+            "sender_display_name": "Test Sender",
+            "sender_email": "sender@example.com",
+            "csrf_token": csrf_token,
+        }
+
+        assert _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})[0] == 302
+        status, _, raw = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})
+
+        assert status == 429
+        assert json.loads(raw)["error"] == "slow_down"
+        assert called["authorize"] == 1
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_register_rate_limit_blocks_storage_before_second_client(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS", "1")
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda *_: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        payload = {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]}
+        assert _request("POST", f"{base_url}/oauth/register", payload)[0] == 201
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", payload)
+
+        assert status == 429
+        assert json.loads(raw)["error"] == "slow_down"
+        stored = oauth.store._conn.execute("SELECT COUNT(*) FROM oauth_clients").fetchone()[0]
+        assert stored == 1
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_authorize_post_rejects_pre_body_csrf_before_credential_auth(server_env):
     config = load_config()
     called = {"authorize": 0}
