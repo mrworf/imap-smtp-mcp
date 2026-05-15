@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from enum import Enum
-from ipaddress import ip_network
 from pathlib import Path
 import re
 from urllib.parse import urlparse
@@ -51,8 +50,6 @@ class OAuthConfig:
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8000
-    trust_proxy_headers: bool = False
-    allowed_proxy_cidrs: tuple[str, ...] = ("127.0.0.1/32", "::1/128")
     internal_https: bool = False
     allow_self_signed_internal_https: bool = False
     tls_cert_file: str | None = None
@@ -176,19 +173,6 @@ def _validate_https_public_url(public_base_url: str) -> None:
     raise ConfigError("MCP_PUBLIC_BASE_URL must use https in production")
 
 
-def _parse_proxy_cidrs() -> tuple[str, ...]:
-    raw = os.getenv("MCP_ALLOWED_PROXY_CIDRS", "127.0.0.1/32,::1/128")
-    cidrs = tuple(item.strip() for item in raw.split(",") if item.strip())
-    if not cidrs:
-        raise ConfigError("MCP_ALLOWED_PROXY_CIDRS must include at least one CIDR")
-    for cidr in cidrs:
-        try:
-            ip_network(cidr, strict=False)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid CIDR in MCP_ALLOWED_PROXY_CIDRS: {cidr}") from exc
-    return cidrs
-
-
 def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
     public_base_url = _parse_url("MCP_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
     _validate_https_public_url(public_base_url)
@@ -264,8 +248,6 @@ def _load_server_config() -> ServerConfig:
     return ServerConfig(
         host=os.getenv("MCP_HOST", "0.0.0.0"),
         port=port,
-        trust_proxy_headers=_parse_bool("MCP_TRUST_PROXY_HEADERS", False),
-        allowed_proxy_cidrs=_parse_proxy_cidrs(),
         internal_https=internal_https,
         allow_self_signed_internal_https=allow_self_signed,
         tls_cert_file=tls_cert_file,

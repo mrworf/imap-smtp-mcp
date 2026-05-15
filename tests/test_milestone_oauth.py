@@ -9,7 +9,6 @@ import pytest
 
 from imap_smtp_mcp.config import ConfigError, load_config
 from imap_smtp_mcp.oauth import CredentialSession, CredentialVault, MailCredentials, OAuthError, OAuthService, TokenClaims
-from imap_smtp_mcp.server import is_trusted_proxy
 
 
 def _challenge(verifier: str) -> str:
@@ -405,13 +404,7 @@ def test_bearer_token_subject_must_match_session(oauth_env):
         service.authenticate_bearer(f"Bearer {token}", required_scopes=("mail:read",))
 
 
-def test_proxy_config_and_public_url_validation(oauth_env, monkeypatch):
-    monkeypatch.setenv("MCP_TRUST_PROXY_HEADERS", "true")
-    monkeypatch.setenv("MCP_ALLOWED_PROXY_CIDRS", "10.0.0.0/8,127.0.0.1/32")
-    config = load_config()
-    assert is_trusted_proxy(config, "10.1.2.3")
-    assert not is_trusted_proxy(config, "192.168.1.10")
-
+def test_public_url_validation(oauth_env, monkeypatch):
     monkeypatch.setenv("MCP_PUBLIC_BASE_URL", "http://mcp.example.com")
     with pytest.raises(ConfigError, match="MCP_PUBLIC_BASE_URL must use https"):
         load_config()

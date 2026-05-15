@@ -11,7 +11,6 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -721,13 +720,6 @@ def _oauth_error_status(exc: OAuthError) -> HTTPStatus:
     if exc.error == "slow_down":
         return HTTPStatus.TOO_MANY_REQUESTS
     return HTTPStatus.BAD_REQUEST
-
-
-def is_trusted_proxy(config: AppConfig, client_ip: str) -> bool:
-    if not config.server.trust_proxy_headers:
-        return False
-    ip = ip_address(client_ip)
-    return any(ip in ip_network(cidr, strict=False) for cidr in config.server.allowed_proxy_cidrs)
 
 
 def build_server(config: AppConfig | None = None) -> MCPHTTPServer:

@@ -8,8 +8,6 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `MCP_PORT`: bind port for the HTTP server. Default: `8000`.
 - `MCP_PUBLIC_BASE_URL`: public base URL ChatGPT uses to reach this server. Production URLs must use HTTPS.
 - `MCP_ALLOW_INSECURE_PUBLIC_URL`: development-only escape hatch for non-HTTPS public URLs outside localhost. Default: `false`.
-- `MCP_TRUST_PROXY_HEADERS`: trust forwarded host/proto/client headers from known proxies. Default: `false`.
-- `MCP_ALLOWED_PROXY_CIDRS`: comma-separated CIDR allowlist for trusted reverse proxies. Default: `127.0.0.1/32,::1/128`.
 - `MCP_INTERNAL_HTTPS`: make the app terminate TLS directly instead of plain HTTP behind a proxy. Default: `false`.
 - `MCP_ALLOW_SELF_SIGNED_INTERNAL_HTTPS`: allow self-signed certificates for direct internal HTTPS. Default: `false`; requires `MCP_INTERNAL_HTTPS=true`.
 - `MCP_TLS_CERT_FILE`: certificate path for direct internal HTTPS.

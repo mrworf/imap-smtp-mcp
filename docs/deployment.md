@@ -27,21 +27,7 @@ The recommended production shape is TLS termination at nginx/Caddy/Traefik:
 ChatGPT -> HTTPS reverse proxy -> http://imap-smtp-mcp:8000
 ```
 
-Forward these headers:
-
-```text
-Host
-X-Forwarded-Proto
-X-Forwarded-Host
-X-Forwarded-For
-```
-
-Enable proxy trust only for known proxy networks:
-
-```env
-MCP_TRUST_PROXY_HEADERS=true
-MCP_ALLOWED_PROXY_CIDRS=127.0.0.1/32,172.16.0.0/12
-```
+Set `MCP_PUBLIC_BASE_URL`, `OAUTH_ISSUER`, and `OAUTH_AUDIENCE` to the external HTTPS origin. The app does not trust or derive OAuth metadata from forwarded proxy headers.
 
 Minimal nginx location:
 
