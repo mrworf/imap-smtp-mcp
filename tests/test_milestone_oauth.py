@@ -8,7 +8,7 @@ import time
 import pytest
 
 from imap_smtp_mcp.config import ConfigError, load_config
-from imap_smtp_mcp.oauth import CredentialVault, MailCredentials, OAuthError, OAuthService, TokenClaims
+from imap_smtp_mcp.oauth import CredentialSession, CredentialVault, MailCredentials, OAuthError, OAuthService, TokenClaims
 from imap_smtp_mcp.server import is_trusted_proxy
 
 
@@ -326,6 +326,43 @@ def test_expired_token_and_missing_scope_rejected(oauth_env):
         )
     )
     with pytest.raises(OAuthError, match="Expired bearer token"):
+        service.authenticate_bearer(f"Bearer {token}", required_scopes=("mail:read",))
+
+
+def test_bearer_token_subject_must_match_session(oauth_env):
+    config = load_config()
+    service = _service(config)
+    encrypted = service.vault.encrypt(
+        MailCredentials(
+            imap_username="real-user",
+            imap_password="imap-password",
+            smtp_username="smtp-user",
+            smtp_password="smtp-password",
+            sender_display_name="Sender",
+            sender_email="sender@example.com",
+        )
+    )
+    service.store.save_session(
+        CredentialSession(
+            session_id="sess-real",
+            subject="real-user",
+            scopes=("mail:read",),
+            created_at=int(time.time()),
+            encrypted_credentials=encrypted,
+        )
+    )
+    token = service.signer.issue(
+        TokenClaims(
+            issuer=config.oauth.issuer,
+            audience=config.oauth.audience,
+            subject="forged-user",
+            scopes=("mail:read",),
+            session_id="sess-real",
+            expires_at=int(time.time()) + 60,
+        )
+    )
+
+    with pytest.raises(OAuthError, match="subject does not match"):
         service.authenticate_bearer(f"Bearer {token}", required_scopes=("mail:read",))
 
 

@@ -640,6 +640,8 @@ class OAuthService:
         session = self.store.get_session(claims.session_id)
         if session is None or session.revoked:
             raise OAuthError("invalid_session", "Credential session is no longer available")
+        if claims.subject != session.subject:
+            raise OAuthError("invalid_token", "Bearer token subject does not match credential session")
         credentials = self.vault.decrypt(session.encrypted_credentials)
         return claims, credentials
 
