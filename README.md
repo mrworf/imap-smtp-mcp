@@ -50,3 +50,8 @@ For quick debugging outside Docker:
 ```
 
 The shell helper is not a production launcher. It creates local runtime directories and may generate debug-only secrets or self-signed certificates. See [local shell debugging](docs/local_debug.md) before exposing it on a LAN/VPN interface.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
+
