@@ -307,9 +307,11 @@ def test_token_exchange_rejects_wrong_pkce_and_reuse(oauth_env):
         service.exchange_code(payload)
 
     payload["code_verifier"] = "right"
-    service.exchange_code(payload)
+    token_response = service.exchange_code(payload)
     with pytest.raises(OAuthError, match="already been used"):
         service.exchange_code(payload)
+    with pytest.raises(OAuthError, match="Credential session is no longer available"):
+        service.authenticate_bearer(f"Bearer {token_response['access_token']}", required_scopes=("mail:read",))
 
 
 def test_expired_token_and_missing_scope_rejected(oauth_env):

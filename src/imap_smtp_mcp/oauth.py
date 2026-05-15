@@ -307,6 +307,11 @@ class OAuthStore:
             used=bool(row["used"]),
         )
 
+    def mark_code_used(self, code: str) -> bool:
+        cursor = self._conn.execute("UPDATE authorization_codes SET used = 1 WHERE code = ? AND used = 0", (code,))
+        self._conn.commit()
+        return cursor.rowcount == 1
+
     def save_session(self, session: CredentialSession) -> None:
         self._conn.execute(
             """
@@ -330,6 +335,10 @@ class OAuthStore:
             encrypted_credentials=row["encrypted_credentials"],
             revoked=bool(row["revoked"]),
         )
+
+    def revoke_session(self, session_id: str) -> None:
+        self._conn.execute("UPDATE credential_sessions SET revoked = 1 WHERE session_id = ?", (session_id,))
+        self._conn.commit()
 
     def save_refresh_token(self, token: RefreshTokenRecord) -> None:
         self._conn.execute(
@@ -534,6 +543,7 @@ class OAuthService:
         if code is None:
             raise OAuthError("invalid_grant", "Unknown authorization code")
         if code.used:
+            self.store.revoke_session(code.session_id)
             raise OAuthError("invalid_grant", "Authorization code has already been used")
         if code.expires_at <= int(time.time()):
             raise OAuthError("invalid_grant", "Authorization code has expired")
@@ -545,7 +555,9 @@ class OAuthService:
         challenge = _b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
         if not hmac.compare_digest(challenge, code.code_challenge):
             raise OAuthError("invalid_grant", "PKCE verification failed")
-        self.store.save_code(AuthorizationCode(**{**code.__dict__, "used": True}))
+        if not self.store.mark_code_used(code.code):
+            self.store.revoke_session(code.session_id)
+            raise OAuthError("invalid_grant", "Authorization code has already been used")
         expires_at = int(time.time()) + self.config.oauth.access_token_ttl_seconds
         token = self.signer.issue(
             TokenClaims(
