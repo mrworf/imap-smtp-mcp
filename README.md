@@ -1,7 +1,6 @@
 # IMAP/SMTP MCP
 
 [![CI](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml)
-[![Docker image](https://ghcr-badge.egpl.dev/mrworf/imap-smtp-mcp/tags?trim=major&label=ghcr.io)](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
 
 `imap-smtp-mcp` is a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
 
@@ -20,6 +19,7 @@ The intended production shape is a Docker container behind a public HTTPS revers
 ## Documentation
 
 - [Deployment guide](docs/deployment.md): Docker, reverse proxy, direct HTTPS, OAuth secrets, and ChatGPT setup.
+- [Example prompts](docs/example_prompts.md): safe prompts for common mail actions and full-capability smoke testing.
 - [Local shell debugging](docs/local_debug.md): non-production helper for running without Docker, including reverse-proxy and standalone HTTPS modes.
 - [Manual MCP compatibility suite](docs/manual_mcp_compat_suite.md): destructive end-to-end mailbox test flow.
 - [Security operations](docs/security_operations.md): secrets, audit logs, OAuth cookies, and operational security notes.
@@ -31,6 +31,8 @@ Images are published to GitHub Container Registry:
 ```text
 ghcr.io/mrworf/imap-smtp-mcp
 ```
+
+Package page: [github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
 
 The CI workflow runs lint, type checks, and tests first. The Docker image job runs only after those quality gates pass, and only for Docker/runtime-relevant changes merged to `main`.
 

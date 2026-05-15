@@ -79,11 +79,14 @@ def test_readme_describes_project_and_links_docs() -> None:
 
     assert "actions/workflows/ci.yml/badge.svg?branch=main" in readme
     assert "ghcr.io/mrworf/imap-smtp-mcp" in readme
+    assert "github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp" in readme
+    assert "ghcr-badge.egpl.dev" not in readme
     assert "Docker image" in readme
     assert "ChatGPT-compatible remote MCP" in readme
     assert "encrypted" in readme
     assert "creating, renaming, and deleting folders" in readme
     assert "docs/deployment.md" in readme
+    assert "docs/example_prompts.md" in readme
     assert "docs/local_debug.md" in readme
     assert "docs/manual_mcp_compat_suite.md" in readme
     assert "IMPLEMENTATION_PLAN.md" not in readme
