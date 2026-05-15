@@ -92,6 +92,7 @@ def build_env(config: DebugConfig, base_env: dict[str, str] | None = None) -> di
             "OAUTH_DEV_INSECURE_SECRETS": env.get("OAUTH_DEV_INSECURE_SECRETS", "true"),
             "OAUTH_ISSUER": config.public_base_url,
             "OAUTH_AUDIENCE": config.public_base_url,
+            "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": env.get("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS", r"https://chatgpt\.com/connector/oauth/.*"),
             "APP_DATA_DIR": str(data_dir),
             "AUDIT_LOG_DIR": str(audit_dir),
             "OAUTH_STORE_PATH": str(data_dir / "oauth.sqlite3"),

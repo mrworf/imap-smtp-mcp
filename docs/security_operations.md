@@ -13,6 +13,11 @@
 - Keep certificate verification enabled.
 - If using custom CAs, mount CA bundle path read-only.
 
+## OAuth abuse controls
+- Configure `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` narrowly for the clients you expect, such as the ChatGPT connector redirect.
+- Keep the local registration and authorize rate limits enabled even when a reverse proxy also rate-limits traffic.
+- Treat a refresh-token reuse error as a session compromise; the server revokes the credential session when reuse is detected.
+
 ## Action flag hardening
 - Sensitive write actions default to `false`; set each `ACTION_*` flag to `true` only when that behavior is required for the deployment.
 - Folder lifecycle actions are controlled separately with `ACTION_CREATE_FOLDER`, `ACTION_RENAME_FOLDER`, and `ACTION_DELETE_FOLDER`.

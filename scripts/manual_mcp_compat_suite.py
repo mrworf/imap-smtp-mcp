@@ -193,6 +193,7 @@ def _server_env(config: SuiteConfig, audit_dir: str) -> dict[str, str]:
             "MCP_ALLOW_INSECURE_PUBLIC_URL": "true",
             "OAUTH_ISSUER": config.public_base_url,
             "OAUTH_AUDIENCE": config.public_base_url,
+            "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": os.getenv("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS", r"https://chatgpt\.com/connector/oauth/manual-compat"),
             "OAUTH_SIGNING_KEY": os.getenv("OAUTH_SIGNING_KEY", secrets.token_urlsafe(32)),
             "OAUTH_COOKIE_SECRET": os.getenv("OAUTH_COOKIE_SECRET", secrets.token_urlsafe(32)),
             "OAUTH_ENCRYPTION_KEY": os.getenv("OAUTH_ENCRYPTION_KEY", _fernet_key()),

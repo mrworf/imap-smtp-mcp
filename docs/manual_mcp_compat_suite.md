@@ -11,6 +11,7 @@ The suite starts this MCP server on a temporary local port, performs OAuth Dynam
 The OAuth step follows the same CSRF-protected authorize form path used by browsers: it loads `GET /oauth/authorize`, captures the signed CSRF cookie and hidden form token, submits credentials to `POST /oauth/authorize`, then exchanges the authorization code for a bearer token.
 
 When the suite starts the server from a source checkout, it prepends the repository `src` directory to `PYTHONPATH` for the spawned server process. You do not need to install the package editable before running the suite from this repository.
+It also configures `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` for the suite's ChatGPT-compatible redirect URI.
 
 The suite verifies that the configured inbox and trash folder exist before sending mail. It creates a unique temporary test folder, renames it once, uses it for copy/move/mark/trash operations, and deletes it before finishing. During the destructive flow it re-searches for the unique per-run marker before copy and move operations because live IMAP mailbox UID visibility can change between operations.
 

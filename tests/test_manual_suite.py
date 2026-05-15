@@ -62,6 +62,7 @@ def test_manual_suite_server_env_is_oauth_only(tmp_path) -> None:
     assert "MCP_" + "ALLOWED_USERS" not in env
     assert "USER_OAUTH_" + "IMAP_USERNAME" not in env
     assert str(ROOT / "src") in env["PYTHONPATH"].split(os.pathsep)
+    assert env["OAUTH_ALLOWED_REDIRECT_URI_PATTERNS"] == r"https://chatgpt\.com/connector/oauth/manual-compat"
     assert env["ACTION_CREATE_FOLDER"] == "true"
     assert env["ACTION_RENAME_FOLDER"] == "true"
     assert env["ACTION_DELETE_FOLDER"] == "true"

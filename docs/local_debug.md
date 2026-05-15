@@ -74,6 +74,7 @@ If `.tmp/debug/tls/debug-mcp.crt` and `.tmp/debug/tls/debug-mcp.key` do not exis
 ```
 
 Generated certificates and generated OAuth secrets are debug-only. Do not reuse them for production.
+The helper also seeds `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` for ChatGPT connector redirects so Dynamic Client Registration works during local testing.
 
 ## Inspect Resolved Env
 

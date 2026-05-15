@@ -60,6 +60,7 @@ def test_reverse_proxy_mode_resolves_runtime_paths_and_custom_bind(tmp_path) -> 
     assert env["MCP_PUBLIC_BASE_URL"] == "https://mail-mcp.example.com"
     assert env["MCP_ALLOW_INSECURE_PUBLIC_URL"] == "true"
     assert env["OAUTH_DEV_INSECURE_SECRETS"] == "true"
+    assert env["OAUTH_ALLOWED_REDIRECT_URI_PATTERNS"] == r"https://chatgpt\.com/connector/oauth/.*"
     assert str(ROOT / "src") in env["PYTHONPATH"].split(os.pathsep)
     assert env["APP_DATA_DIR"] == str(tmp_path / "data")
     assert env["OAUTH_STORE_PATH"] == str(tmp_path / "data" / "oauth.sqlite3")
