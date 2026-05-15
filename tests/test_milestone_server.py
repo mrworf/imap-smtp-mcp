@@ -197,16 +197,23 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
 
 def test_authorize_form_identifies_app_and_groups_credentials(http_server):
     base_url, _ = http_server
-    status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+    status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"], "client_name": "<ChatGPT Connector>"})
     client_id = json.loads(raw)["client_id"]
     status, _, html = _request("GET", f"{base_url}/oauth/authorize?{_authorize_query(client_id)}")
 
     assert status == 200
     assert "<h1" in html
     assert "Authorize IMAP/SMTP MCP" in html
-    assert "lets ChatGPT use your configured IMAP and SMTP account" in html
+    assert "lets authorized MCP clients use your configured IMAP and SMTP account" in html
     assert 'href="https://github.com/mrworf/imap-smtp-mcp"' in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
+    assert "&lt;ChatGPT Connector&gt;" in html
+    assert client_id in html
+    assert "https://chatgpt.com" in html
+    assert "https://chatgpt.com/connector/oauth/cb" in html
+    assert "http://127.0.0.1:8000" in html
+    assert "mail:read, mail:send, mail:write" in html
+    assert "ChatGPT is requesting" not in html
     assert "<legend>IMAP credentials</legend>" in html
     assert "<legend>SMTP credentials</legend>" in html
     assert "<legend>Sender identity</legend>" in html

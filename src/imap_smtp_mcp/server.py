@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from .audit import AuditEvent, AuditLogger
 from .config import AppConfig, ConfigError, load_config
 from .errors import MCPError
-from .oauth import OAuthError, OAuthService
+from .oauth import OAuthClient, OAuthError, OAuthService
 from .tool_controller import TOOL_SCOPES, MailToolController
 
 
@@ -121,14 +121,23 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
     def _handle_authorize_get(self, raw_query: str) -> None:
         query = _single_value_query(raw_query)
         try:
-            self.server.oauth_service.validate_authorize_request(query)
+            client = self.server.oauth_service.validate_authorize_request(query)
         except OAuthError as exc:
             self._send_oauth_error(exc, status=HTTPStatus.BAD_REQUEST)
             return
         csrf_token = secrets.token_urlsafe(32)
         cookie_value = _sign_authorize_cookie(self.server.config, csrf_token, raw_query)
         self._send_html(
-            _login_form(raw_query, self.server.config.oauth.required_scopes, csrf_token, self.server.config.smtp_from_domain, self.server.config.debug_unredacted_logs),
+            _login_form(
+                raw_query,
+                client,
+                query["redirect_uri"],
+                query["resource"],
+                tuple(query["scope"].split()),
+                csrf_token,
+                self.server.config.smtp_from_domain,
+                self.server.config.debug_unredacted_logs,
+            ),
             headers={"Set-Cookie": _build_authorize_cookie(self.server.config, cookie_value)},
         )
 
@@ -297,9 +306,19 @@ def _single_value_query(raw: str) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
-def _login_form(raw_query: str, scopes: tuple[str, ...], csrf_token: str, smtp_from_domain: str | None = None, debug_unredacted_logs: bool = False) -> str:
+def _login_form(
+    raw_query: str,
+    client: OAuthClient,
+    redirect_uri: str,
+    resource: str,
+    scopes: tuple[str, ...],
+    csrf_token: str,
+    smtp_from_domain: str | None = None,
+    debug_unredacted_logs: bool = False,
+) -> str:
     action = f"/oauth/authorize?{html.escape(raw_query, quote=True)}"
     domain_json = json.dumps(smtp_from_domain or "")
+    redirect_origin = _uri_origin(redirect_uri)
     debug_warning = (
         '<div class="warning" role="alert"><strong>Debug logging is enabled.</strong> Email subjects, bodies, tool arguments, and tool results may be written to backend audit logs. Do not use this mode for production mailboxes.</div>'
         if debug_unredacted_logs
@@ -378,6 +397,25 @@ p {{
   color: var(--muted);
 }}
 .scope-line strong {{
+  color: var(--text);
+}}
+.client-details {{
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}}
+.detail-row {{
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}}
+.detail-row strong {{
   color: var(--text);
 }}
 .warning {{
@@ -474,9 +512,16 @@ button:hover {{
 <section class="panel" aria-labelledby="authorize-title">
 <div class="intro">
 <h1 id="authorize-title">Authorize IMAP/SMTP MCP</h1>
-<p class="description">IMAP/SMTP MCP is a self-hosted mail connector that lets ChatGPT use your configured IMAP and SMTP account to list folders, search and read messages, send mail, and manage mailbox items according to the scopes you grant.</p>
+<p class="description">IMAP/SMTP MCP is a self-hosted mail connector that lets authorized MCP clients use your configured IMAP and SMTP account to list folders, search and read messages, send mail, and manage mailbox items according to the scopes you grant.</p>
 <p><a class="repo-link" href="https://github.com/mrworf/imap-smtp-mcp" target="_blank" rel="noopener noreferrer">Read more on GitHub</a></p>
-<p class="scope-line"><strong>ChatGPT is requesting:</strong> <span>{html.escape(", ".join(scopes))}</span></p>
+<div class="client-details" aria-label="OAuth client details">
+<div class="detail-row"><strong>Application</strong><span>{html.escape(client.client_name)}</span></div>
+<div class="detail-row"><strong>Client ID</strong><span>{html.escape(client.client_id)}</span></div>
+<div class="detail-row"><strong>Redirect host</strong><span>{html.escape(redirect_origin)}</span></div>
+<div class="detail-row"><strong>Redirect URI</strong><span>{html.escape(redirect_uri)}</span></div>
+<div class="detail-row"><strong>Resource</strong><span>{html.escape(resource)}</span></div>
+<div class="detail-row"><strong>Scopes</strong><span>{html.escape(", ".join(scopes))}</span></div>
+</div>
 {debug_warning}
 </div>
 <form method="post" action="{action}">
@@ -530,6 +575,13 @@ smtpUsername.addEventListener("input", () => {{
 </main>
 </body>
 </html>"""
+
+
+def _uri_origin(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return value
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _sign_authorize_cookie(config: AppConfig, csrf_token: str, raw_query: str) -> str:
