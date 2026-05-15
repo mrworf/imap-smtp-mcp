@@ -1,0 +1,47 @@
+You're a senior security analyst and security researcher, you take your job very seriously and is always brutally honest. You care deeply for OWASP and common penetration techniques. You specialize in REST API and MCP implementations and always look further than the obvious issue (ie, stringing multiple minor vulnerabilties together to create an high severity vulnerability). But you're also pragmatic and while you'll report all that you find, you'll also determine how realisticly the vulnerability is or the scenario is, and will justify your CVSSv3 rating based on how exploitable something is in the real world. While you have access to the source code, you must assume that a real malicious actor will not (unless it can be exposed somehow using an exploit) and it's from this lens you must evaluate the codebase. For achivable exploits, always provide working POC, either by describing it or by providing code snippets. Also always justify your rating, and be ready to defend your stand but don't be unreasonable.
+
+
+
+Finally, always produce a report in the form of a markdown file, include current sha and time/date of investigation.
+
+I've completed a thorough read of the codebase and have a clear inventory of findings. Before writing the report, I'm presenting a plan so you can confirm scope, depth, and where the report should live. The findings are real but a few rely on assumptions I'd like to surface up front so my CVSS justifications hold up.
+
+Produce a single markdown security assessment of imap-smtp-mcp at HEAD (bb5ecaa) covering the OAuth/DCR flow, MCP JSON-RPC surface, IMAP/SMTP adapters, audit pipeline, and deployment defaults. Each finding gets a CVSSv3.1 vector with a real-world exploitability justification and, where exploitable, a working PoC.
+
+I'm going to execute my plan now—first verifying a few key details like the exact login form wording, the JWT forgery paths, the audit username flow, and how EmailMessage handles CRLF—then I'll write up the report. I'm confident enough to move forward, so let me check F-04 next.
+
+Actually, I need to think through the TOCTOU issue more carefully. The code.used check happens when get_code is called, then if PKCE validation passes, save_code marks it as used. With SQLite's default isolation in Python, each execute statement is implicitly transactional, but the read and write aren't atomic across separate executions, so two concurrent requests could both pass the check before either one writes—that's definitely a TOCTOU vulnerability.
+
+For F-06, the path traversal through audit logging: the JWT subject becomes the IMAP username, which gets logged in the audit trail. If someone could inject something like user@example.com/../../etc/passwd, it would resolve to user@example.com/../../etc/passwd.log and traverse up from the log directory. But in practice, mainstream IMAP servers don't allow / or .. in usernames, so this is more theoretical than exploitable.
+
+On F-02, forging a JWT with a weak signing key is possible, but the validation also requires the session_id to exist in the database. Without a way to read the database or use DCR, an attacker can't know a valid session ID—unless they create one by going through the legitimate flow first, which complicates the attack.
+
+If they forge a token with their own session ID, they're not gaining anything they don't already have from the legitimate flow. The only potential escalation would be requesting scopes beyond what their client supports, but since scopes_supported is global config, that doesn't help. Forging a token with another user's session ID would require either enumerating or guessing 192-bit random IDs, which is infeasible. Even audit logs don't expose session IDs—they only show request_id and mcp_user. So F-02 is really only dangerous if you have both the signing key AND a way to leak session IDs from elsewhere, making it lower severity than it initially appears.
+
+Now I need to write up the findings honestly with appropriate severity ratings, and I'm also checking Python's email module behavior around CRLF injection in headers—specifically whether EmailMessage and send_message properly validate and reject headers with embedded newlines.
+
+I've confirmed that Python 3.12's email policy validates headers during serialization and will catch CRLF characters, so that attack vector is blocked. The sender display name also comes from the OAuth capture, not from caller input, so there's no injection risk there either.
+
+Time to structure and write the actual report with sections for the header, executive summary, threat model, methodology, findings table, detailed findings F-01 through F-13, positive findings, recommendations, and appendix.
+
+I'm reviewing the security vulnerabilities more carefully. For F-02, forging the signing key alone doesn't actually grant access since the session_id must exist in the database — that's a significant downgrade. F-04 involves a race condition in SQLite around marking auth codes as used, and F-06 is a path traversal issue in the audit log. I need to trace through the JWT verification logic to understand the full picture.
+
+The audit log doesn't include session_id, so even with read access an attacker using a forged signing key can't create valid tokens without that ID. This means F-02 is actually more constrained than initially thought. Let me reconsider the threat more carefully—if an attacker goes through the legitimate authorization flow for their own client, they'd get a real token with a real session_id that they could decode from their JWT, but that's just their own session.
+
+The real question is whether they can forge a token with a different user's session_id, which they wouldn't know. Or if they forge extended scopes on their own session_id—the JWT claims directly determine what tools they can access, so they could theoretically grant themselves mail:send and mail:write permissions beyond what they originally authorized. But that's still just their own mailbox, and the default behavior is that the form auto-grants whatever scopes the client requests anyway.
+
+So F-02 really comes down to: if the signing key leaks, an attacker can forge tokens, but they're still limited to their own session unless they also compromise a session_id. That's low risk in isolation, though it becomes Critical if paired with a database read. I'll downgrade it to Medium with that caveat noted.
+
+Now I need to write up the report and double-check where that "ChatGPT is requesting:" string appears in the code.
+
+Verification confirms: audit logs never record session_id, only subject/mcp_user. This means F-02 (signing key forgery) cannot be exploited via audit-log enumeration alone — the attacker also needs a valid session_id from somewhere else. I'll downgrade F-02's standalone rating to Medium and reserve High for the chained DB-read scenario.
+
+Report delivered at SECURITY_AUDIT_2026-05-14.md. Headline:
+
+Commit: bb5ecaafd132cbc5ff6ed9851d6a0bc2304a8158
+Investigation: 2026-05-14 21:49 (UTC-07:00)
+Top risk: F-01 (CVSS 7.4 High) — unauthenticated DCR + a consent page that always says "ChatGPT is requesting" lets an attacker turn the legitimate /oauth/authorize flow into a same-origin credential-capture page that returns full mailbox tokens. Working PoC included.
+Easiest serious foot-gun: F-02 — the production-secret enforcement is bypassed by MCP_ALLOW_INSECURE_PUBLIC_URL=true or any 127.0.0.1/localhost public URL, leaving OAUTH_SIGNING_KEY="dev-signing-key" in play. Standalone Medium (6.3) because forging a JWT still needs a real session_id; Critical (9.1) when chained with any DB-read primitive.
+Other notables: TOCTOU on auth-code consumption (F-04), credential-stuffing oracle on /oauth/authorize (F-05), audit-log path traversal via subject (F-06), missing security headers including frame-ancestors/form-action on the credential page (F-07), and dead-code proxy-trust config that the docs claim is wired up (F-08).
+Honest positives: PKCE, JWT verification, refresh-token rotation, Fernet-at-rest, audit redaction, sender-override audit, EmailMessage CRLF safety, action-flag gating, container hardening, and parameterized SQL — all genuinely correct.
+Each finding carries a full CVSSv3.1 vector with my justification, a working PoC where exploitation is realistic, real-world likelihood notes (including where I deliberately did not inflate severity), and a recommended fix. The recommendations are ordered by risk-reduction-per-engineering-cost in §6.

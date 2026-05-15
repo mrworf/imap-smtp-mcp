@@ -1,0 +1,185 @@
+Audit MCP security report
+No tasks in progress
+
+
+You're a senior security analyst and security researcher, you take your job very seriously and is always brutally honest. You care deeply for OWASP and common penetration techniques. You specialize in REST API and MCP implementations and always look further than the obvious issue (ie, stringing multiple minor vulnerabilties together to create an high severity vulnerability). But you're also pragmatic and while you'll report all that you find, you'll also determine how realisticly the vulnerability is or the scenario is, and will justify your CVSSv3 rating based on how exploitable something is in the real world. While you have access to the source code, you must assume that a real malicious actor will not (unless it can be exposed somehow using an exploit) and it's from this lens you must evaluate the codebase. For achivable exploits, always provide working POC, either by describing it or by providing code snippets. Also always justify your rating, and be ready to defend your stand but don't be unreasonable.
+
+Finally, always produce a report in the form of a markdown file, include current sha and time/date of investigation.
+9:48 PM
+
+I’ll first ground this in the actual repo shape and security-relevant entry points, then I’ll turn that into a decision-complete audit plan. Since we’re in Plan Mode, I can inspect and reason freely, but I won’t write the markdown report yet.
+
+
+Listed files, ran 3 commands
+Ran git rev-parse HEAD
+$ git rev-parse HEAD
+
+bb5ecaafd132cbc5ff6ed9851d6a0bc2304a8158
+
+Success
+Ran date -Is
+$ date -Is
+
+2026-05-14T21:49:07-07:00
+
+Success
+Listed files
+Ran git status --short
+$ git status --short
+
+No output
+
+Success
+The repo is small and clean at bb5eca…, so the audit surface is tractable: MCP server code, configuration/auth, IMAP/SMTP adapters, tool controllers, write/send actions, and operator docs. I’m reading those next to pin down the realistic attacker model and where PoCs would fit.
+
+
+Explored 16 files
+Read pyproject.toml
+Read README.md
+Read config.py
+Read server.py
+Read tool_controller.py
+Read audit.py
+Read oauth.py
+Read imap_adapter.py
+Read smtp_adapter.py
+Read write_tools.py
+Read send_tools.py
+Read read_tools.py
+Read capabilities.py
+Read errors.py
+Read configuration.md
+Read security_operations.md
+Worked for 45s
+A few areas already deserve deeper scrutiny: bearer token lifecycle versus credential sessions, OAuth client registration and redirect handling, mailbox action authorization, and audit log path construction. I’m checking startup/proxy/TLS behavior and tests next so the plan can specify concrete PoC coverage rather than hand-wave at “review everything.”
+
+
+Explored 11 files, 1 search, ran 2 commands
+Read server.py
+Read Dockerfile
+Read env.example
+Read test_milestone_oauth.py
+Read test_milestone5.py
+Read test_milestone_server.py
+Read test_milestone6.py
+Ran python3 -c "import imaplib, inspect; print(inspect.getsource(imaplib.IMAP4.select)); print(inspect.getsource(imaplib.IMAP4.uid)); print(inspect.getsource(imaplib.IMAP4._command))"
+Ran python3 -c "from http.server import BaseHTTPRequestHandler; import inspect; print(inspect.getsource(BaseHTTPRequestHandler.send_header))"
+Searched for redirect_uri|uid|ACTION_|csrf|bearer|authorization|register_client|read_email|max_chars|AuditLogger|mcp_user|send_header|client_name in src
+Read deployment.md
+Read manual_mcp_compat_suite.py
+Read test_milestone8.py
+Read test_milestone7.py
+Plan
+
+
+
+
+Open
+
+Security Review Report Plan
+Summary
+Create a markdown security report at docs/security_review_2026-05-14.md for commit bb5ecaafd132cbc5ff6ed9851d6a0bc2304a8158, investigation time 2026-05-14T21:49:07-07:00.
+
+The report will be written from an external attacker perspective: assume public HTTP/OAuth/MCP access, no source access, and source only used to confirm exploitability and impact.
+
+Report Contents
+Include executive summary, methodology, environment metadata, findings table, detailed findings, PoCs, CVSSv3.1 vectors, remediation guidance, and residual risk.
+Prioritize realistic exploit chains, especially:
+OAuth Dynamic Client Registration phishing/token capture via attacker-controlled redirect URI.
+IMAP UID sequence-set abuse such as uid="1:*" causing bulk delete/move/mark operations through “single UID” tools.
+Destructive action flags defaulting enabled in code when env vars are omitted.
+Unauthenticated OAuth client-registration storage exhaustion.
+/oauth/authorize IMAP password-spray oracle and lack of rate limiting.
+CRLF/header injection risk through insufficient redirect_uri validation before Location.
+Audit log filename/path traversal risk from mcp_user-derived log filenames.
+Lower-severity hardening gaps such as missing browser security headers and malformed JSON/PKCE error handling.
+Mark non-issues explicitly where useful: token signatures are HMAC-checked, PKCE is implemented, credentials are encrypted at rest when production config is valid, and action flags are enforced before adapter calls.
+PoC Approach
+Provide safe, copyable PoCs that do not require real mailbox credentials unless clearly labeled.
+For OAuth/DCR: show curl registration, crafted authorize URL, and token exchange flow.
+For UID sequence abuse: show JSON-RPC tools/call payloads using uid: "1:*" for destructive operations.
+For registration DoS: show bounded loop/pseudocode demonstrating persistent SQLite growth.
+For redirect header injection: show encoded malicious redirect URI registration and explain expected vulnerable response behavior.
+For brute force: show the request sequence and explain rate-limit implications without providing a credential-stuffing tool.
+Validation And Evidence
+Reference concrete code locations in the report:
+OAuth registration/authorize/token behavior in src/imap_smtp_mcp/oauth.py and src/imap_smtp_mcp/server.py.
+UID handling in src/imap_smtp_mcp/write_tools.py.
+action flag defaults in src/imap_smtp_mcp/config.py.
+audit log routing in src/imap_smtp_mcp/audit.py.
+No repository code changes besides the markdown report.
+No test suite run is required for a report-only deliverable; optional validation can use targeted local unit-style probes without touching tracked files.
+Assumptions
+The production server is internet-reachable at its configured MCP public URL behind HTTPS, as documented.
+ChatGPT compatibility requiring Dynamic Client Registration is real, but unrestricted arbitrary redirect registration is still treated as security-relevant.
+CVSS ratings will be pragmatic: exploitable-by-link/user-interaction issues are not treated as theoretical, but findings requiring an existing valid bearer token are rated lower unless they chain cleanly with OAuth abuse.
+Implement plan
+9:53 PM
+
+
+Worked for 4m 59s
+I’ll turn the approved plan into the actual report file now, keeping the change scoped to docs/security_review_2026-05-14.md. I’m going to grab exact line references first so the evidence in the report is concrete rather than vibes in a blazer.
+
+
+Explored 2 files, ran 3 commands
+I have the commit and current timestamp; it’s still the planned SHA, and the worktree is clean before the report. I’m pulling the remaining line-numbered evidence for the write/action/audit findings, then I’ll write the markdown in one scoped patch.
+
+
+Explored 5 files
+The evidence points to two genuinely high-impact paths: attacker-owned OAuth clients can capture tokens after user interaction, and the write tools accept IMAP sequence sets where they promise a single UID. I’m writing the report with those first, then the more deployment/hardening-oriented issues below them.
+
+Created 1 file
+The report file is in place. I’m doing a quick hygiene pass now: checking the diff, making sure the new markdown stayed ASCII-friendly, and confirming I didn’t touch anything outside the requested report.
+
+
+Edited 1 file, explored 1 file, 2 searches, ran 5 commands
+Implemented the report at docs/security_review_2026-05-14.md.
+
+It includes the requested SHA/time metadata, external-attacker methodology, findings table, CVSSv3.1 ratings, concrete code evidence, PoCs, remediation guidance, positive security observations, and the realistic exploit chain.
+
+I only added the markdown report. No tests were run since this was a report-only change.
+
+
+security_review_2026-05-14.md
+Document · MD
+Open
+
+2 files changed
++520
+-10
+Undo
+
+Review
+
+docs/security_review_2026-05-14.md
+docs/security_review_2026-05-14.md
+
+
+
+
+9:58 PM
+
+
+
+
+
+Auto-review
+
+5.5
+Extra High
+
+IDE context
+
+
+Work locally
+
+Branch details
+
+Changes
+
+Git actions
+GitHub CLI unavailable
+
+Artifacts
+
+security_review_2026-05-14.md
