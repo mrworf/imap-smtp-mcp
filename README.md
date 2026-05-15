@@ -19,6 +19,7 @@ The intended production shape is a Docker container behind a public HTTPS revers
 ## Documentation
 
 - [Deployment guide](docs/deployment.md): Docker, reverse proxy, direct HTTPS, OAuth secrets, and ChatGPT setup.
+- [Configuration reference](docs/configuration.md): complete environment-variable reference for server and test-suite settings.
 - [Example prompts](docs/example_prompts.md): safe prompts for common mail actions and full-capability smoke testing.
 - [Local shell debugging](docs/local_debug.md): non-production helper for running without Docker, including reverse-proxy and standalone HTTPS modes.
 - [Manual MCP compatibility suite](docs/manual_mcp_compat_suite.md): destructive end-to-end mailbox test flow.

@@ -7,6 +7,8 @@
 - `/sse` is not a strict legacy long-lived SSE event channel. Native stdio for Claude Desktop is not implemented; use a separate HTTP-to-stdio bridge if needed.
 - `APP_DATA_DIR` must be writable for the SQLite OAuth store, and `AUDIT_LOG_DIR` must be writable for audit logs.
 
+For every supported environment variable, see the [Configuration Reference](configuration.md).
+
 ## ChatGPT-facing URL
 Set `MCP_PUBLIC_BASE_URL` to the public HTTPS URL ChatGPT will connect to:
 

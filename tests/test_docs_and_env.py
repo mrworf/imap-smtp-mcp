@@ -86,6 +86,7 @@ def test_readme_describes_project_and_links_docs() -> None:
     assert "encrypted" in readme
     assert "creating, renaming, and deleting folders" in readme
     assert "docs/deployment.md" in readme
+    assert "docs/configuration.md" in readme
     assert "docs/example_prompts.md" in readme
     assert "docs/local_debug.md" in readme
     assert "docs/manual_mcp_compat_suite.md" in readme
@@ -96,6 +97,38 @@ def test_agent_instructions_are_self_contained() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     assert "IMPLEMENTATION_PLAN.md" not in agents
+
+
+def test_configuration_reference_covers_environment_variables() -> None:
+    config_path = ROOT / "docs/configuration.md"
+    assert config_path.exists()
+    config = config_path.read_text(encoding="utf-8")
+    env_example = (ROOT / "env.example").read_text(encoding="utf-8")
+
+    env_names = []
+    for line in env_example.splitlines():
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        env_names.append(line.split("=", 1)[0])
+    env_names.extend(["MCP_ALLOW_INSECURE_PUBLIC_URL", "OAUTH_USERNAME_CLAIM"])
+
+    for name in env_names:
+        assert name in config
+
+    assert "MCP_COMPAT_TEST_EMAIL" in config
+    assert "MCP_COMPAT_USE_EXISTING_SERVER" in config
+    assert "not by the production server" in config
+
+
+def test_configuration_docs_are_linked_and_stale_docs_removed() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+
+    assert "docs/configuration.md" in readme
+    assert "Configuration Reference](configuration.md)" in deployment
+    assert not (ROOT / "IMPLEMENTATION_PLAN.md").exists()
+    assert not (ROOT / "docs/milestone4.md").exists()
+    assert not (ROOT / "docs/milestone6.md").exists()
 
 
 def test_security_docs_name_folder_action_flags() -> None:
