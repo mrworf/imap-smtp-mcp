@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import threading
 from dataclasses import dataclass
@@ -68,12 +70,20 @@ class AuditLogger:
         self._write_line(username, json.dumps(payload, separators=(",", ":")))
 
     def _write_line(self, username: str, line: str) -> None:
-        file_path = self._log_dir / f"{username}.log"
+        file_path = self._safe_log_path(username)
         with self._lock:
             self._rotate_if_needed(file_path, len(line) + 1)
             with file_path.open("a", encoding="utf-8") as f:
                 f.write(line)
                 f.write("\n")
+
+    def _safe_log_path(self, username: str) -> Path:
+        file_path = self._log_dir / _audit_filename(username)
+        resolved_dir = self._log_dir.resolve()
+        resolved_file = file_path.resolve(strict=False)
+        if resolved_dir != resolved_file.parent:
+            raise ValueError("Audit log path escaped AUDIT_LOG_DIR")
+        return file_path
 
     def _rotate_if_needed(self, file_path: Path, incoming_bytes: int) -> None:
         if not file_path.exists():
@@ -101,3 +111,11 @@ def _sanitize(value: Any, *, key_hint: str = "") -> Any:
     if isinstance(value, (list, tuple)):
         return [_sanitize(item) for item in value]
     return value
+
+
+def _audit_filename(username: str) -> str:
+    if username == SYSTEM_LOG:
+        return f"{SYSTEM_LOG}.log"
+    digest = hashlib.sha256(username.encode("utf-8")).digest()
+    encoded = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"user-{encoded}.log"

@@ -1,6 +1,6 @@
 import pytest
 
-from imap_smtp_mcp.audit import AuditEvent, AuditLogger
+from imap_smtp_mcp.audit import AuditEvent, AuditLogger, _audit_filename
 from imap_smtp_mcp.config import ConfigError, load_config
 from imap_smtp_mcp.server import build_server
 
@@ -72,4 +72,20 @@ def test_audit_logger_writes_when_log_path_is_writable_directory(tmp_path):
         )
     )
 
-    assert (tmp_path / "alice.log").exists()
+    assert (tmp_path / _audit_filename("alice")).exists()
+    assert not (tmp_path / "alice.log").exists()
+
+
+def test_audit_logger_hashes_traversal_usernames_inside_log_dir(tmp_path):
+    logger = AuditLogger(str(tmp_path))
+    logger.log_tool_invocation(
+        AuditEvent(
+            request_id="traversal",
+            operation="read_email",
+            success=True,
+            mcp_user="../escape",
+        )
+    )
+
+    assert (tmp_path / _audit_filename("../escape")).exists()
+    assert not (tmp_path.parent / "escape.log").exists()

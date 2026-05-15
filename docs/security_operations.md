@@ -21,6 +21,7 @@
 
 ## Audit logging and retention
 - Mount audit log directory to durable storage.
+- Per-user audit filenames are derived from a hash of the MCP subject; the original subject remains inside each JSON audit line as `mcp_user`.
 - Use metadata-only logging; avoid message body capture.
 - Review `sender_identity_override` events; these record requested versus actual `From`/`Reply-To` values when a caller attempts to spoof sender headers.
 - Leave `MCP_DEBUG_UNREDACTED_LOGS=false` outside short troubleshooting windows. When enabled, audit logs include sanitized tool arguments/results, email subjects and bodies, and exception tracebacks; passwords, tokens, keys, secrets, and raw authorization values remain redacted.

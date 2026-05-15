@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 
-from imap_smtp_mcp.audit import AuditEvent, AuditLogger, REDACTED
+from imap_smtp_mcp.audit import AuditEvent, AuditLogger, REDACTED, _audit_filename
 
 
 def test_per_account_and_general_routing(tmp_path):
@@ -11,7 +11,7 @@ def test_per_account_and_general_routing(tmp_path):
     logger.log_tool_invocation(AuditEvent(request_id="r1", mcp_user="alice", operation="read_email", success=True))
     logger.log_tool_invocation(AuditEvent(request_id="r2", mcp_user=None, operation="startup", success=False, failure_class="config_error"))
 
-    assert (tmp_path / "alice.log").exists()
+    assert (tmp_path / _audit_filename("alice")).exists()
     assert (tmp_path / "system.log").exists()
 
 
@@ -29,7 +29,7 @@ def test_required_fields_and_redaction(tmp_path):
         )
     )
 
-    payload = json.loads((tmp_path / "bob.log").read_text().strip())
+    payload = json.loads((tmp_path / _audit_filename("bob")).read_text().strip())
     assert payload["timestamp"]
     assert payload["request_id"] == "req-1"
     assert payload["mcp_user"] == "bob"
@@ -55,7 +55,7 @@ def test_debug_logging_includes_sanitized_args_results_and_traceback(tmp_path):
         )
     )
 
-    payload = json.loads((tmp_path / "bob.log").read_text().strip())
+    payload = json.loads((tmp_path / _audit_filename("bob")).read_text().strip())
     encoded = json.dumps(payload)
     assert payload["arguments"]["body_text"] == "debug body"
     assert payload["result"]["body_text"] == "result body"
@@ -84,7 +84,7 @@ def test_failure_diagnostics_are_logged_without_debug_traceback(tmp_path):
         )
     )
 
-    payload = json.loads((tmp_path / "bob.log").read_text().strip())
+    payload = json.loads((tmp_path / _audit_filename("bob")).read_text().strip())
     assert payload["metadata"]["imap_phase"] == "search"
     assert payload["exception_type"] == "BackendUnavailableError"
     assert payload["exception_message"] == "IMAP search failed"
@@ -95,7 +95,7 @@ def test_failure_diagnostics_are_logged_without_debug_traceback(tmp_path):
 def test_failure_path_logged(tmp_path):
     logger = AuditLogger(str(tmp_path))
     logger.log_tool_invocation(AuditEvent(request_id="req-2", mcp_user="carol", operation="move_email", success=False, failure_class="not_found"))
-    lines = (tmp_path / "carol.log").read_text().strip().splitlines()
+    lines = (tmp_path / _audit_filename("carol")).read_text().strip().splitlines()
     assert len(lines) == 1
     payload = json.loads(lines[0])
     assert payload["success"] is False
@@ -107,8 +107,8 @@ def test_rotation(tmp_path):
     for idx in range(5):
         logger.log_tool_invocation(AuditEvent(request_id=f"r{idx}", mcp_user="alice", operation="op", success=True))
 
-    assert (tmp_path / "alice.log").exists()
-    assert (tmp_path / "alice.log.1").exists()
+    assert (tmp_path / _audit_filename("alice")).exists()
+    assert (tmp_path / f"{_audit_filename('alice')}.1").exists()
 
 
 def test_concurrent_rotation_writes_complete_json_lines(tmp_path):
@@ -136,7 +136,7 @@ def test_concurrent_rotation_writes_complete_json_lines(tmp_path):
         thread.join()
 
     assert errors == []
-    files = sorted(tmp_path.glob("alice.log*"))
+    files = sorted(tmp_path.glob(f"{_audit_filename('alice')}*"))
     assert files
     for file_path in files:
         text = file_path.read_text(encoding="utf-8")

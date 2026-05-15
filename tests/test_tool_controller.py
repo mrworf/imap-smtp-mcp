@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from imap_smtp_mcp.audit import AuditLogger
+from imap_smtp_mcp.audit import AuditLogger, _audit_filename
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
@@ -233,7 +233,7 @@ def test_send_tool_uses_session_sender_and_audits_spoof_attempt(controller_env, 
             "append_to_sent": True,
         }
     ]
-    log_lines = (tmp_path / "subject.log").read_text(encoding="utf-8").splitlines()
+    log_lines = (tmp_path / _audit_filename("subject")).read_text(encoding="utf-8").splitlines()
     override = next(json.loads(line) for line in log_lines if json.loads(line)["operation"] == "sender_identity_override")
     assert override["request_id"] == "send-1"
     assert override["metadata"]["requested_from_address"] == "spoof@example.net"
@@ -293,7 +293,7 @@ def test_tool_failure_audit_includes_exception_details(controller_env, tmp_path)
             subject="subject",
         )
 
-    payload = json.loads((tmp_path / "subject.log").read_text(encoding="utf-8").splitlines()[0])
+    payload = json.loads((tmp_path / _audit_filename("subject")).read_text(encoding="utf-8").splitlines()[0])
     assert payload["failure_class"] == "backend_unavailable"
     assert payload["metadata"]["imap_phase"] == "search"
     assert payload["metadata"]["folder"] == "INBOX"
@@ -324,7 +324,7 @@ def test_debug_tool_audit_logs_sanitized_arguments_results_and_traceback(control
     )
 
     assert result == {"sent": True}
-    payload = json.loads((tmp_path / "subject.log").read_text(encoding="utf-8").splitlines()[-1])
+    payload = json.loads((tmp_path / _audit_filename("subject")).read_text(encoding="utf-8").splitlines()[-1])
     encoded = json.dumps(payload)
     assert payload["arguments"]["body_text"] == "Debug body"
     assert payload["arguments"]["smtp_password"] == "[REDACTED]"

@@ -80,6 +80,7 @@ Action flags enable or disable tool families before any adapter/network call. Re
 - `AUDIT_LOG_DIR`: directory for structured audit log files. Required and must be writable.
 
 Audit logs redact secrets by default. When `MCP_DEBUG_UNREDACTED_LOGS=true`, passwords, tokens, keys, secrets, and raw authorization headers remain redacted.
+User-specific audit filenames are hash-derived so mailbox usernames are not used as filesystem path components.
 
 ## Manual Compatibility Suite
 
