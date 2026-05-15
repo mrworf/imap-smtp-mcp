@@ -69,6 +69,15 @@ def _env(monkeypatch):
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
+        "ACTION_MARK_READ_STATE": "true",
+        "ACTION_MOVE_EMAIL": "true",
+        "ACTION_COPY_EMAIL": "true",
+        "ACTION_DELETE_EMAIL_PERMANENT": "true",
+        "ACTION_MOVE_TO_TRASH": "true",
+        "ACTION_EMPTY_TRASH": "true",
+        "ACTION_CREATE_FOLDER": "true",
+        "ACTION_RENAME_FOLDER": "true",
+        "ACTION_DELETE_FOLDER": "true",
     }
     for k, v in entries.items():
         monkeypatch.setenv(k, v)

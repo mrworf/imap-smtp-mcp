@@ -30,6 +30,11 @@ def test_valid_config_loads(base_env):
     config = load_config()
     assert config.imap.port == 993
     assert config.smtp.mode.value == "starttls"
+    assert config.action_flags["read_email"] is True
+    assert config.action_flags["send_email"] is False
+    assert config.action_flags["delete_email_permanent"] is False
+    assert config.action_flags["empty_trash"] is False
+    assert config.action_flags["delete_folder"] is False
 
 
 def test_missing_required_env_fails(monkeypatch):

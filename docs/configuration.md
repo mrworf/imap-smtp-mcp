@@ -53,7 +53,7 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 
 ## Action Flags
 
-Action flags enable or disable tool families before any adapter/network call. They default to enabled in code, but `env.example` disables the more destructive operations.
+Action flags enable or disable tool families before any adapter/network call. Read/list/send actions default to enabled, while mailbox mutation and folder lifecycle actions default to disabled unless the operator explicitly sets the corresponding flag to `true`.
 
 - `ACTION_LIST_FOLDERS`: allow folder listing.
 - `ACTION_SEARCH_EMAILS`: allow email search.

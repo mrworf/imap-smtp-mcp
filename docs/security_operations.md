@@ -13,7 +13,7 @@
 - If using custom CAs, mount CA bundle path read-only.
 
 ## Action flag hardening
-- Default sensitive write actions to `false` unless required.
+- Sensitive write actions default to `false`; set each `ACTION_*` flag to `true` only when that behavior is required for the deployment.
 - Folder lifecycle actions are controlled separately with `ACTION_CREATE_FOLDER`, `ACTION_RENAME_FOLDER`, and `ACTION_DELETE_FOLDER`.
 - Enable least-privilege actions per environment.
 - Validate effective action flags during startup review.
