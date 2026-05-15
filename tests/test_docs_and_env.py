@@ -86,6 +86,13 @@ def test_readme_describes_project_and_links_docs() -> None:
     assert "docs/deployment.md" in readme
     assert "docs/local_debug.md" in readme
     assert "docs/manual_mcp_compat_suite.md" in readme
+    assert "IMPLEMENTATION_PLAN.md" not in readme
+
+
+def test_agent_instructions_are_self_contained() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "IMPLEMENTATION_PLAN.md" not in agents
 
 
 def test_security_docs_name_folder_action_flags() -> None:

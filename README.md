@@ -23,7 +23,6 @@ The intended production shape is a Docker container behind a public HTTPS revers
 - [Local shell debugging](docs/local_debug.md): non-production helper for running without Docker, including reverse-proxy and standalone HTTPS modes.
 - [Manual MCP compatibility suite](docs/manual_mcp_compat_suite.md): destructive end-to-end mailbox test flow.
 - [Security operations](docs/security_operations.md): secrets, audit logs, OAuth cookies, and operational security notes.
-- [Implementation plan](IMPLEMENTATION_PLAN.md): milestone roadmap and current behavior.
 
 ## Container Image
 
