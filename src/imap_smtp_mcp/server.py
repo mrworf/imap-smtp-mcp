@@ -64,6 +64,8 @@ class MCPHTTPServer(ThreadingHTTPServer):
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
     server: MCPHTTPServer
+    server_version = "imap-smtp-mcp"
+    sys_version = ""
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -119,6 +121,9 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         except RequestBodyError as exc:
             self._audit_system("oauth_register", False, "invalid_request")
             self._send_json({"error": "invalid_request", "error_description": exc.message}, status=exc.status)
+        except ValueError:
+            self._audit_system("oauth_register", False, "invalid_request")
+            self._send_json({"error": "invalid_request", "error_description": "Malformed JSON request body"}, status=HTTPStatus.BAD_REQUEST)
         except OAuthError as exc:
             self._audit_system("oauth_register", False, exc.error)
             self._send_oauth_error(exc, status=_oauth_error_status(exc))
@@ -244,6 +249,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.UNAUTHORIZED)
             self.send_header("Content-Type", JSON)
             self.send_header("WWW-Authenticate", _bearer_challenge(self.server.config, exc))
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(json.dumps({"error": exc.error, "error_description": exc.description}).encode("utf-8"))
             return None
@@ -280,6 +286,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", JSON)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
@@ -288,6 +295,11 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cache-Control", "no-store")
         for key, item in (headers or {}).items():
             self.send_header(key, item)
         self.end_headers()

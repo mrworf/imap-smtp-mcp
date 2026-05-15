@@ -190,6 +190,11 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     assert "HttpOnly" in headers["set-cookie"]
     assert "SameSite=Lax" in headers["set-cookie"]
     assert "Secure" not in headers["set-cookie"]
+    assert headers["x-frame-options"] == "DENY"
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["referrer-policy"] == "no-referrer"
+    assert headers["cache-control"] == "no-store"
+    assert "frame-ancestors 'none'" in headers["content-security-policy"]
     assert _csrf_token_from_html(html)
     assert 'name="sender_display_name"' in html
     assert 'name="sender_email"' in html
@@ -525,6 +530,11 @@ def test_json_body_limits_for_register_and_mcp(http_server):
     assert status == 413
     assert f"Request body exceeds {MAX_JSON_BODY_BYTES} bytes" in raw
 
+    status, headers, raw = _raw("POST", f"{base_url}/oauth/register", "{bad-json", headers={"Content-Type": "application/json", "Content-Length": "9"})
+    assert status == 400
+    assert headers["x-content-type-options"] == "nosniff"
+    assert json.loads(raw)["error"] == "invalid_request"
+
     status, _, raw = _raw("POST", f"{base_url}/sse", "", headers={"Content-Type": "application/json", "Content-Length": "wat"})
     assert status == 400
     assert "Content-Length must be a non-negative integer" in raw
@@ -536,6 +546,7 @@ def test_mcp_requires_bearer_and_lists_tools(http_server):
     assert status == 401
     assert "www-authenticate" in headers
     assert "oauth-protected-resource" in headers["www-authenticate"]
+    assert headers["x-content-type-options"] == "nosniff"
 
     token = _token(base_url)
     status, _, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "2", "method": "tools/list"}, headers={"Authorization": f"Bearer {token}"})

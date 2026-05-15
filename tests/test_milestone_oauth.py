@@ -314,6 +314,41 @@ def test_token_exchange_rejects_wrong_pkce_and_reuse(oauth_env):
         service.authenticate_bearer(f"Bearer {token_response['access_token']}", required_scopes=("mail:read",))
 
 
+def test_token_exchange_rejects_non_ascii_pkce(oauth_env):
+    service = _service(load_config())
+    client = service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+    query = {
+        "response_type": "code",
+        "client_id": str(client["client_id"]),
+        "redirect_uri": "https://chatgpt.com/connector/oauth/cb",
+        "code_challenge": _challenge("right"),
+        "code_challenge_method": "S256",
+        "scope": "mail:read",
+        "resource": "https://mcp.example.com",
+    }
+    redirect = service.authorize_with_credentials(
+        query,
+        imap_username="u",
+        imap_password="p",
+        smtp_username="s",
+        smtp_password="sp",
+        sender_display_name="Sender",
+        sender_email="sender@example.com",
+    )
+    code = redirect.split("code=", 1)[1].split("&", 1)[0]
+
+    with pytest.raises(OAuthError, match="code_verifier must be ASCII"):
+        service.exchange_code(
+            {
+                "grant_type": "authorization_code",
+                "client_id": str(client["client_id"]),
+                "redirect_uri": "https://chatgpt.com/connector/oauth/cb",
+                "code": code,
+                "code_verifier": "snowman-\u2603",
+            }
+        )
+
+
 def test_expired_token_and_missing_scope_rejected(oauth_env):
     config = load_config()
     service = _service(config)

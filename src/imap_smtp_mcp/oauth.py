@@ -552,7 +552,10 @@ class OAuthService:
         if payload.get("redirect_uri") != code.redirect_uri:
             raise OAuthError("invalid_grant", "redirect_uri does not match authorization code")
         verifier = payload.get("code_verifier", "")
-        challenge = _b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
+        try:
+            challenge = _b64url_encode(hashlib.sha256(verifier.encode("ascii")).digest())
+        except UnicodeEncodeError as exc:
+            raise OAuthError("invalid_grant", "code_verifier must be ASCII") from exc
         if not hmac.compare_digest(challenge, code.code_challenge):
             raise OAuthError("invalid_grant", "PKCE verification failed")
         if not self.store.mark_code_used(code.code):
