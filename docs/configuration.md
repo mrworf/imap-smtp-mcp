@@ -22,9 +22,10 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `OAUTH_STORE_PATH`: SQLite path for OAuth clients, codes, sessions, and refresh-token hashes. Default: `$APP_DATA_DIR/oauth.sqlite3`.
 - `OAUTH_ISSUER`: OAuth issuer URL. Default: `MCP_PUBLIC_BASE_URL`.
 - `OAUTH_AUDIENCE`: bearer-token audience. Default: `MCP_PUBLIC_BASE_URL`.
-- `OAUTH_SIGNING_KEY`: secret used to sign bearer tokens. Required for production HTTPS deployments.
-- `OAUTH_COOKIE_SECRET`: secret used to sign short-lived OAuth authorization-form CSRF cookies. Required for production HTTPS deployments.
-- `OAUTH_ENCRYPTION_KEY`: Fernet key used to encrypt mailbox credentials in the OAuth store. Required for production HTTPS deployments.
+- `OAUTH_SIGNING_KEY`: secret used to sign bearer tokens. Required unless `OAUTH_DEV_INSECURE_SECRETS=true`; must be at least 32 random characters.
+- `OAUTH_COOKIE_SECRET`: secret used to sign short-lived OAuth authorization-form CSRF cookies. Required unless `OAUTH_DEV_INSECURE_SECRETS=true`; must be at least 32 random characters.
+- `OAUTH_DEV_INSECURE_SECRETS`: development/test-only escape hatch that allows default weak signing/cookie secrets and an ephemeral credential encryption key. Default: `false`.
+- `OAUTH_ENCRYPTION_KEY`: Fernet key used to encrypt mailbox credentials in the OAuth store. Required unless `OAUTH_DEV_INSECURE_SECRETS=true`.
 - `OAUTH_REQUIRED_SCOPES`: space- or comma-separated required scopes. Default: `mail:read mail:send mail:write`.
 - `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS`: comma- or newline-separated regular expressions for allowed Dynamic Client Registration redirect URIs. Required for DCR; for ChatGPT use `https://chatgpt\.com/connector/oauth/cb`.
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS`: access-token lifetime. Default: `3600`.

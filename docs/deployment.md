@@ -91,7 +91,14 @@ Set unique production secrets:
 ```env
 OAUTH_SIGNING_KEY=<long random secret>
 OAUTH_COOKIE_SECRET=<long random CSRF cookie signing secret>
+OAUTH_DEV_INSECURE_SECRETS=false
 OAUTH_ENCRYPTION_KEY=<fernet key>
+```
+
+Generate signing and cookie secrets with:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
 ```
 
 Generate the encryption key with:

@@ -69,6 +69,7 @@ def _env(monkeypatch):
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
+        "OAUTH_DEV_INSECURE_SECRETS": "true",
         "ACTION_MARK_READ_STATE": "true",
         "ACTION_MOVE_EMAIL": "true",
         "ACTION_COPY_EMAIL": "true",

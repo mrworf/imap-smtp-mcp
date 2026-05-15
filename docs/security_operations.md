@@ -5,7 +5,8 @@
 - Never commit plaintext credentials to repository files.
 - Keep IMAP and SMTP credentials distinct for each MCP user account.
 - Capture sender display name and outbound email during OAuth, and set `SMTP_FROM_DOMAIN` so the authorize form can suggest the expected sender domain for SMTP usernames without `@`.
-- Use a long random `OAUTH_COOKIE_SECRET`; it signs the OAuth authorize CSRF cookie and rotating it invalidates only in-flight authorization forms.
+- Use long random `OAUTH_SIGNING_KEY` and `OAUTH_COOKIE_SECRET` values. `OAUTH_COOKIE_SECRET` signs the OAuth authorize CSRF cookie and rotating it invalidates only in-flight authorization forms.
+- Leave `OAUTH_DEV_INSECURE_SECRETS=false` outside local testing.
 
 ## TLS and certificate handling
 - Use `ssl` or `starttls` modes only.

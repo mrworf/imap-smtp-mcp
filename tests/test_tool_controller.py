@@ -23,6 +23,7 @@ def controller_env(monkeypatch, tmp_path):
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": str(tmp_path),
+        "OAUTH_DEV_INSECURE_SECRETS": "true",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)

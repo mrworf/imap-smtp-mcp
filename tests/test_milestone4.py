@@ -62,6 +62,7 @@ def _base_env():
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
+        "OAUTH_DEV_INSECURE_SECRETS": "true",
         "ACTION_SEND_EMAIL": "true",
     }
 

@@ -16,6 +16,7 @@ def base_env(monkeypatch):
         "IMAP_SENT_FOLDER": "Sent",
         "IMAP_TRASH_FOLDER": "Trash",
         "AUDIT_LOG_DIR": "/tmp/imap-smtp-audit",
+        "OAUTH_DEV_INSECURE_SECRETS": "true",
         "IMAP_TLS_VERIFY": "true",
         "IMAP_MAX_RETRIES": "2",
         "ACTION_LIST_FOLDERS": "true",

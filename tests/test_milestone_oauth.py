@@ -33,8 +33,8 @@ def oauth_env(monkeypatch, tmp_path):
         "MCP_PUBLIC_BASE_URL": "https://mcp.example.com",
         "OAUTH_ISSUER": "https://mcp.example.com",
         "OAUTH_AUDIENCE": "https://mcp.example.com",
-        "OAUTH_SIGNING_KEY": "test-signing-key",
-        "OAUTH_COOKIE_SECRET": "test-cookie-secret",
+        "OAUTH_SIGNING_KEY": "test-signing-key-0123456789abcdef",
+        "OAUTH_COOKIE_SECRET": "test-cookie-secret-0123456789abcdef",
         "OAUTH_ENCRYPTION_KEY": CredentialVault.generate_key(),
         "OAUTH_REQUIRED_SCOPES": "mail:read mail:send mail:write",
         "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": r"https://chatgpt\.com/connector/oauth/cb",
@@ -339,6 +339,34 @@ def test_proxy_config_and_public_url_validation(oauth_env, monkeypatch):
     monkeypatch.setenv("MCP_PUBLIC_BASE_URL", "http://mcp.example.com")
     with pytest.raises(ConfigError, match="MCP_PUBLIC_BASE_URL must use https"):
         load_config()
+
+
+def test_oauth_secrets_must_be_strong_without_dev_escape_hatch(oauth_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_SIGNING_KEY", "short")
+    with pytest.raises(ConfigError, match="OAUTH_SIGNING_KEY"):
+        load_config()
+
+    monkeypatch.setenv("OAUTH_SIGNING_KEY", "strong-signing-key-0123456789abcdef")
+    monkeypatch.setenv("OAUTH_COOKIE_SECRET", "short")
+    with pytest.raises(ConfigError, match="OAUTH_COOKIE_SECRET"):
+        load_config()
+
+    monkeypatch.setenv("OAUTH_COOKIE_SECRET", "strong-cookie-secret-0123456789abcdef")
+    monkeypatch.delenv("OAUTH_ENCRYPTION_KEY")
+    with pytest.raises(ConfigError, match="OAUTH_ENCRYPTION_KEY"):
+        load_config()
+
+
+def test_oauth_dev_insecure_secrets_allows_local_defaults(oauth_env, monkeypatch):
+    monkeypatch.delenv("OAUTH_SIGNING_KEY")
+    monkeypatch.delenv("OAUTH_COOKIE_SECRET")
+    monkeypatch.delenv("OAUTH_ENCRYPTION_KEY")
+    monkeypatch.setenv("OAUTH_DEV_INSECURE_SECRETS", "true")
+
+    config = load_config()
+
+    assert config.oauth.dev_insecure_secrets is True
+    assert config.oauth.signing_key == "dev-signing-key"
 
 
 def test_smtp_from_domain_validation(oauth_env, monkeypatch):

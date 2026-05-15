@@ -33,6 +33,7 @@ class OAuthConfig:
     signing_key: str = "dev-signing-key"
     encryption_key: str = ""
     cookie_secret: str = "dev-cookie-secret"
+    dev_insecure_secrets: bool = False
     access_token_ttl_seconds: int = 3600
     authorization_code_ttl_seconds: int = 300
     refresh_token_ttl_seconds: int = 2_592_000
@@ -192,13 +193,8 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
     signing_key = os.getenv("OAUTH_SIGNING_KEY", "dev-signing-key")
     cookie_secret = os.getenv("OAUTH_COOKIE_SECRET", "dev-cookie-secret")
     encryption_key = os.getenv("OAUTH_ENCRYPTION_KEY", "")
-    if urlparse(public_base_url).scheme == "https":
-        if signing_key == "dev-signing-key":
-            raise ConfigError("OAUTH_SIGNING_KEY must be set for production HTTPS deployments")
-        if cookie_secret == "dev-cookie-secret":
-            raise ConfigError("OAUTH_COOKIE_SECRET must be set for production HTTPS deployments")
-        if not encryption_key:
-            raise ConfigError("OAUTH_ENCRYPTION_KEY must be set for production HTTPS deployments")
+    dev_insecure_secrets = _parse_bool("OAUTH_DEV_INSECURE_SECRETS", False)
+    _validate_oauth_secrets(signing_key, cookie_secret, encryption_key, dev_insecure_secrets)
     access_ttl = _parse_int("OAUTH_ACCESS_TOKEN_TTL_SECONDS", 3600)
     code_ttl = _parse_int("OAUTH_AUTH_CODE_TTL_SECONDS", 300)
     refresh_ttl = _parse_int("OAUTH_REFRESH_TOKEN_TTL_SECONDS", 2_592_000)
@@ -216,6 +212,7 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         signing_key=signing_key,
         encryption_key=encryption_key,
         cookie_secret=cookie_secret,
+        dev_insecure_secrets=dev_insecure_secrets,
         access_token_ttl_seconds=access_ttl,
         authorization_code_ttl_seconds=code_ttl,
         refresh_token_ttl_seconds=refresh_ttl,
@@ -224,6 +221,17 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         username_claim=os.getenv("OAUTH_USERNAME_CLAIM", "sub"),
         store_path=store_path,
     )
+
+
+def _validate_oauth_secrets(signing_key: str, cookie_secret: str, encryption_key: str, dev_insecure_secrets: bool) -> None:
+    if dev_insecure_secrets:
+        return
+    if signing_key == "dev-signing-key" or len(signing_key) < 32:
+        raise ConfigError("OAUTH_SIGNING_KEY must be set to at least 32 random characters")
+    if cookie_secret == "dev-cookie-secret" or len(cookie_secret) < 32:
+        raise ConfigError("OAUTH_COOKIE_SECRET must be set to at least 32 random characters")
+    if not encryption_key:
+        raise ConfigError("OAUTH_ENCRYPTION_KEY must be set")
 
 
 def _load_server_config() -> ServerConfig:

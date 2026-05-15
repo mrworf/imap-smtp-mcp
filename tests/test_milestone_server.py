@@ -43,8 +43,8 @@ def server_env(monkeypatch, tmp_path):
         "MCP_ALLOW_INSECURE_PUBLIC_URL": "true",
         "OAUTH_ISSUER": "http://127.0.0.1:8000",
         "OAUTH_AUDIENCE": "http://127.0.0.1:8000",
-        "OAUTH_SIGNING_KEY": "test-signing-key",
-        "OAUTH_COOKIE_SECRET": "test-cookie-secret",
+        "OAUTH_SIGNING_KEY": "test-signing-key-0123456789abcdef",
+        "OAUTH_COOKIE_SECRET": "test-cookie-secret-0123456789abcdef",
         "OAUTH_ENCRYPTION_KEY": CredentialVault.generate_key(),
         "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": r"https://chatgpt\.com/connector/oauth/cb",
     }

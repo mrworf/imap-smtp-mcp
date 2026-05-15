@@ -89,6 +89,7 @@ def build_env(config: DebugConfig, base_env: dict[str, str] | None = None) -> di
             "MCP_PORT": str(config.port),
             "MCP_PUBLIC_BASE_URL": config.public_base_url,
             "MCP_ALLOW_INSECURE_PUBLIC_URL": "true",
+            "OAUTH_DEV_INSECURE_SECRETS": env.get("OAUTH_DEV_INSECURE_SECRETS", "true"),
             "OAUTH_ISSUER": config.public_base_url,
             "OAUTH_AUDIENCE": config.public_base_url,
             "APP_DATA_DIR": str(data_dir),
