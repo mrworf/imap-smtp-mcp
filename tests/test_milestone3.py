@@ -200,6 +200,17 @@ def test_invalid_input_and_not_found(base_env):
         service.read_email("u", "p", "INBOX", "999")
 
 
+@pytest.mark.parametrize("uid", ["1:*", "1,2", "1:5", "*", "0", "-1", "+1", " "])
+def test_read_email_rejects_sequence_set_uids_before_imap(base_env, uid):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    with pytest.raises(InvalidInputError, match="uid must"):
+        service.read_email("u", "p", "INBOX", uid)
+
+    assert client.uid_calls == []
+
+
 def test_read_email_safe_truncation(base_env):
     config = load_config()
     service = _service(config)

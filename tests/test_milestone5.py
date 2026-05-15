@@ -93,6 +93,29 @@ def test_move_and_copy_and_delete_and_trash(service):
     service.empty_trash("u", "p")
 
 
+@pytest.mark.parametrize("uid", ["1:*", "1,2", "1:5", "*", "0", "-1", "+1", " "])
+@pytest.mark.parametrize("operation", ["mark_read_state", "copy_email", "move_email", "move_to_trash", "delete_email_permanent"])
+def test_single_message_write_tools_reject_sequence_set_uids(monkeypatch, uid, operation):
+    _env(monkeypatch)
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    with pytest.raises(InvalidInputError, match="uid must"):
+        if operation == "mark_read_state":
+            svc.mark_read_state("u", "p", "Inbox", uid, True)
+        elif operation == "copy_email":
+            svc.copy_email("u", "p", "Inbox", "Archive", uid)
+        elif operation == "move_email":
+            svc.move_email("u", "p", "Inbox", "Archive", uid)
+        elif operation == "move_to_trash":
+            svc.move_to_trash("u", "p", "Inbox", uid)
+        else:
+            svc.delete_email_permanent("u", "p", "Inbox", uid)
+
+    assert client.calls == []
+
+
 def test_folder_lifecycle_operations_success(monkeypatch):
     _env(monkeypatch)
     cfg = load_config()

@@ -11,6 +11,7 @@ from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from .imap_adapter import ImapAdapter, ImapAdapterError
+from .validation import validate_single_message_uid
 
 MAX_RESULTS = 100
 _IMAP_DATE_RE = re.compile(r"^\d{1,2}-[A-Za-z]{3}-\d{4}$")
@@ -222,7 +223,7 @@ class ReadOnlyMailboxService:
     def read_email(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000) -> ReadEmailResult:
         self._enforce_action("read_email")
         folder_name = _validate_nonempty_single_line("folder", folder)
-        uid_value = _validate_nonempty_single_line("uid", uid)
+        uid_value = validate_single_message_uid("uid", uid)
         if max_chars <= 0:
             raise InvalidInputError("max_chars must be > 0")
 

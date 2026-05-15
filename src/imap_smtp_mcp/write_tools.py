@@ -4,6 +4,7 @@ from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from .imap_adapter import ImapAdapter, ImapAdapterError
+from .validation import validate_single_message_uid
 
 
 class WriteMailboxService:
@@ -84,7 +85,7 @@ class WriteMailboxService:
     def mark_read_state(self, username: str, password: str, folder: str, uid: str, is_read: bool) -> None:
         self._enforce_action("mark_read_state")
         folder_name = self._validate_single_line("folder", folder)
-        uid_value = self._validate_single_line("uid", uid)
+        uid_value = validate_single_message_uid("uid", uid)
         flag_op = "+FLAGS" if is_read else "-FLAGS"
         try:
             client = self._imap_adapter.connect(username, password)
@@ -107,7 +108,7 @@ class WriteMailboxService:
     def _copy_or_move(self, username: str, password: str, source_folder: str, target_folder: str, uid: str, *, is_move: bool) -> None:
         src = self._validate_single_line("source_folder", source_folder)
         dst = self._validate_single_line("target_folder", target_folder)
-        uid_value = self._validate_single_line("uid", uid)
+        uid_value = validate_single_message_uid("uid", uid)
         try:
             client = self._imap_adapter.connect(username, password)
             self._select_folder(client, src)
@@ -129,7 +130,7 @@ class WriteMailboxService:
     def delete_email_permanent(self, username: str, password: str, folder: str, uid: str) -> None:
         self._enforce_action("delete_email_permanent")
         folder_name = self._validate_single_line("folder", folder)
-        uid_value = self._validate_single_line("uid", uid)
+        uid_value = validate_single_message_uid("uid", uid)
         try:
             client = self._imap_adapter.connect(username, password)
             self._select_folder(client, folder_name)
