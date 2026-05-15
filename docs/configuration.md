@@ -26,6 +26,7 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `OAUTH_COOKIE_SECRET`: secret used to sign short-lived OAuth authorization-form CSRF cookies. Required for production HTTPS deployments.
 - `OAUTH_ENCRYPTION_KEY`: Fernet key used to encrypt mailbox credentials in the OAuth store. Required for production HTTPS deployments.
 - `OAUTH_REQUIRED_SCOPES`: space- or comma-separated required scopes. Default: `mail:read mail:send mail:write`.
+- `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS`: comma- or newline-separated regular expressions for allowed Dynamic Client Registration redirect URIs. Required for DCR; for ChatGPT use `https://chatgpt\.com/connector/oauth/cb`.
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS`: access-token lifetime. Default: `3600`.
 - `OAUTH_AUTH_CODE_TTL_SECONDS`: authorization-code lifetime. Default: `300`.
 - `OAUTH_REFRESH_TOKEN_TTL_SECONDS`: refresh-token lifetime. Default: `2592000`.

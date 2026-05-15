@@ -37,6 +37,7 @@ def oauth_env(monkeypatch, tmp_path):
         "OAUTH_COOKIE_SECRET": "test-cookie-secret",
         "OAUTH_ENCRYPTION_KEY": CredentialVault.generate_key(),
         "OAUTH_REQUIRED_SCOPES": "mail:read mail:send mail:write",
+        "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": r"https://chatgpt\.com/connector/oauth/cb",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -67,6 +68,38 @@ def test_dcr_rejects_non_https_redirect(oauth_env):
     service = _service(load_config())
     with pytest.raises(OAuthError, match="absolute https URLs"):
         service.register_client({"redirect_uris": ["http://chatgpt.test/cb"]})
+
+
+@pytest.mark.parametrize(
+    ("uri", "message"),
+    [
+        ("https://attacker.example/cb", "not allowed"),
+        ("https://user@chatgpt.com/connector/oauth/cb", "userinfo"),
+        ("https://chatgpt.com/connector/oauth/cb#frag", "fragments"),
+        ("https://chatgpt.com/connector/oauth/cb\r\nX-Bad: yes", "control"),
+        ("https://chatgpt.com/connector/oauth/cb with-space", "whitespace"),
+        ("https://chatgpt.com\\connector\\oauth\\cb", "backslashes"),
+    ],
+)
+def test_dcr_rejects_malformed_or_unlisted_redirects(oauth_env, uri, message):
+    service = _service(load_config())
+    with pytest.raises(OAuthError, match=message):
+        service.register_client({"redirect_uris": [uri]})
+
+
+def test_dcr_requires_redirect_allowlist(oauth_env, monkeypatch):
+    monkeypatch.delenv("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS")
+    service = _service(load_config())
+    with pytest.raises(OAuthError, match="allowlist"):
+        service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+
+
+def test_dcr_bounds_client_name_and_redirects(oauth_env):
+    service = _service(load_config())
+    with pytest.raises(OAuthError, match="client_name must be at most"):
+        service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"], "client_name": "A" * 129})
+    with pytest.raises(OAuthError, match="at most 5"):
+        service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"] * 6})
 
 
 def test_authorization_code_and_token_flow_preserves_separate_credentials(oauth_env):

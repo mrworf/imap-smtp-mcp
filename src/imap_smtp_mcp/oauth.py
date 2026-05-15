@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -20,6 +20,10 @@ from .imap_adapter import ImapAdapter, ImapAdapterError
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_CLIENT_NAME_LENGTH = 128
+MAX_REDIRECT_URIS = 5
+MAX_REDIRECT_URI_LENGTH = 2048
+CONTROL_CHARS = frozenset(chr(value) for value in range(0x20)) | {"\x7f"}
 
 
 class OAuthError(PermissionError):
@@ -408,16 +412,27 @@ class OAuthService:
         redirect_uris = payload.get("redirect_uris")
         if not isinstance(redirect_uris, list) or not redirect_uris:
             raise OAuthError("invalid_client_metadata", "redirect_uris must be a non-empty list")
+        if len(redirect_uris) > MAX_REDIRECT_URIS:
+            raise OAuthError("invalid_client_metadata", f"redirect_uris must include at most {MAX_REDIRECT_URIS} URLs")
         normalized: list[str] = []
         for uri in redirect_uris:
-            if not isinstance(uri, str) or not uri.startswith("https://"):
+            if not isinstance(uri, str):
                 raise OAuthError("invalid_redirect_uri", "redirect_uris must be absolute https URLs")
+            _validate_redirect_uri(uri, self.config.oauth.allowed_redirect_uri_patterns)
             normalized.append(uri)
+        raw_client_name = payload.get("client_name") or "ChatGPT"
+        if not isinstance(raw_client_name, str):
+            raise OAuthError("invalid_client_metadata", "client_name must be a string")
+        client_name = raw_client_name.strip()
+        if not client_name:
+            raise OAuthError("invalid_client_metadata", "client_name must not be empty")
+        if len(client_name) > MAX_CLIENT_NAME_LENGTH:
+            raise OAuthError("invalid_client_metadata", f"client_name must be at most {MAX_CLIENT_NAME_LENGTH} characters")
         client_id = f"client-{secrets.token_urlsafe(24)}"
         client = OAuthClient(
             client_id=client_id,
             redirect_uris=tuple(normalized),
-            client_name=str(payload.get("client_name") or "ChatGPT"),
+            client_name=client_name,
         )
         self.store.save_client(client)
         return {
@@ -636,3 +651,17 @@ class OAuthService:
                 logout()
         except ImapAdapterError as exc:
             raise OAuthError("access_denied", "IMAP login failed") from exc
+
+
+def _validate_redirect_uri(uri: str, allowed_patterns: tuple[str, ...]) -> None:
+    if len(uri) > MAX_REDIRECT_URI_LENGTH:
+        raise OAuthError("invalid_redirect_uri", f"redirect_uris must be at most {MAX_REDIRECT_URI_LENGTH} characters")
+    if any(char in CONTROL_CHARS for char in uri) or " " in uri or "\\" in uri:
+        raise OAuthError("invalid_redirect_uri", "redirect_uris must not contain whitespace, control characters, or backslashes")
+    parsed = urlparse(uri)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise OAuthError("invalid_redirect_uri", "redirect_uris must be absolute https URLs without userinfo or fragments")
+    if not allowed_patterns:
+        raise OAuthError("invalid_redirect_uri", "No OAuth redirect URI allowlist is configured")
+    if not any(re.fullmatch(pattern, uri) for pattern in allowed_patterns):
+        raise OAuthError("invalid_redirect_uri", "redirect_uri is not allowed by this server")

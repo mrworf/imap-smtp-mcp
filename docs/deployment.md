@@ -118,6 +118,12 @@ https://mail-mcp.example.com/.well-known/oauth-authorization-server
 
 The server supports Dynamic Client Registration and authorization-code + PKCE. Users authorize by entering separate IMAP and SMTP credentials. The IMAP login is verified before tokens are issued.
 
+Restrict Dynamic Client Registration to known redirect destinations. For ChatGPT, allow its connector OAuth redirect:
+
+```env
+OAUTH_ALLOWED_REDIRECT_URI_PATTERNS=https://chatgpt\.com/connector/oauth/cb
+```
+
 During OAuth authorization, users also confirm the display name and outbound email address that the server will use for sent mail. Set `SMTP_FROM_DOMAIN=example.com` to let the form suggest `smtp_username@example.com` when the SMTP username is only a local part; usernames that already contain `@` are copied as-is. Users may edit the suggested outbound address before authorizing.
 
 After authorization, MCP callers cannot choose `From` or `Reply-To`. `send_email` always uses the captured sender identity, and any caller-supplied sender or reply-to fields are ignored for delivery and recorded in audit metadata with the requested and actual values.

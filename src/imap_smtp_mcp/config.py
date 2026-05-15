@@ -37,6 +37,7 @@ class OAuthConfig:
     authorization_code_ttl_seconds: int = 300
     refresh_token_ttl_seconds: int = 2_592_000
     required_scopes: tuple[str, ...] = ("mail:read", "mail:send", "mail:write")
+    allowed_redirect_uri_patterns: tuple[str, ...] = ()
     username_claim: str = "sub"
     store_path: str = "/var/lib/imap-smtp-mcp/oauth.sqlite3"
 
@@ -131,6 +132,17 @@ def _parse_scopes(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return scopes
 
 
+def _parse_patterns(name: str) -> tuple[str, ...]:
+    raw = os.getenv(name, "")
+    patterns = tuple(item.strip() for item in raw.replace("\n", ",").split(",") if item.strip())
+    for pattern in patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ConfigError(f"Invalid regex in {name}: {pattern}") from exc
+    return patterns
+
+
 def _parse_optional_domain(name: str) -> str | None:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
@@ -208,6 +220,7 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         authorization_code_ttl_seconds=code_ttl,
         refresh_token_ttl_seconds=refresh_ttl,
         required_scopes=_parse_scopes("OAUTH_REQUIRED_SCOPES", ("mail:read", "mail:send", "mail:write")),
+        allowed_redirect_uri_patterns=_parse_patterns("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS"),
         username_claim=os.getenv("OAUTH_USERNAME_CLAIM", "sub"),
         store_path=store_path,
     )

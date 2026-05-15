@@ -46,6 +46,7 @@ def server_env(monkeypatch, tmp_path):
         "OAUTH_SIGNING_KEY": "test-signing-key",
         "OAUTH_COOKIE_SECRET": "test-cookie-secret",
         "OAUTH_ENCRYPTION_KEY": CredentialVault.generate_key(),
+        "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS": r"https://chatgpt\.com/connector/oauth/cb",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)
