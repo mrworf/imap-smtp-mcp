@@ -280,8 +280,55 @@ def test_authorize_post_requires_matching_csrf_cookie(http_server):
     status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
     client_id = json.loads(raw)["client_id"]
     query = _authorize_query(client_id)
+
+    def fresh_form():
+        status, headers, html = _request("GET", f"{base_url}/oauth/authorize?{query}")
+        assert status == 200
+        csrf_token = _csrf_token_from_html(html)
+        csrf_cookie = headers["set-cookie"].split(";", 1)[0]
+        form = {
+            "imap_username": "imap-user",
+            "imap_password": "imap-pass",
+            "smtp_username": "smtp-user",
+            "smtp_password": "smtp-pass",
+            "sender_display_name": "Test Sender",
+            "sender_email": "sender@example.com",
+            "csrf_token": csrf_token,
+        }
+        return csrf_cookie, form
+
+    csrf_cookie, form = fresh_form()
+    missing = _form("POST", f"{base_url}/oauth/authorize?{query}", form)
+    assert missing[0] == 400
+    assert "Missing OAuth authorization CSRF cookie" in missing[2]
+
+    csrf_cookie, form = fresh_form()
+    tampered = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": f"{AUTHORIZE_CSRF_COOKIE}=bad"})
+    assert tampered[0] == 400
+
+    csrf_cookie, form = fresh_form()
+    mismatched = _form("POST", f"{base_url}/oauth/authorize?{query}", {**form, "csrf_token": "other"}, headers={"Cookie": csrf_cookie})
+    assert mismatched[0] == 400
+    assert "CSRF token mismatch" in mismatched[2]
+
+    csrf_cookie, form = fresh_form()
+    swapped_query = _authorize_query(client_id, scope="mail:read mail:send")
+    swapped = _form("POST", f"{base_url}/oauth/authorize?{swapped_query}", form, headers={"Cookie": csrf_cookie})
+    assert swapped[0] == 400
+    assert "Invalid OAuth authorization CSRF cookie" in swapped[2]
+
+    csrf_cookie, form = fresh_form()
+    ok = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})
+    assert ok[0] == 302
+    assert f"{AUTHORIZE_CSRF_COOKIE}=;" in ok[1]["set-cookie"]
+
+
+def test_authorize_post_rejects_reused_csrf_token(http_server):
+    base_url, _ = http_server
+    status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+    client_id = json.loads(raw)["client_id"]
+    query = _authorize_query(client_id)
     status, headers, html = _request("GET", f"{base_url}/oauth/authorize?{query}")
-    assert status == 200
     csrf_token = _csrf_token_from_html(html)
     csrf_cookie = headers["set-cookie"].split(";", 1)[0]
     form = {
@@ -294,25 +341,11 @@ def test_authorize_post_requires_matching_csrf_cookie(http_server):
         "csrf_token": csrf_token,
     }
 
-    missing = _form("POST", f"{base_url}/oauth/authorize?{query}", form)
-    assert missing[0] == 400
-    assert "Missing OAuth authorization CSRF cookie" in missing[2]
+    assert _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})[0] == 302
+    status, _, raw = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})
 
-    tampered = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": f"{AUTHORIZE_CSRF_COOKIE}=bad"})
-    assert tampered[0] == 400
-
-    mismatched = _form("POST", f"{base_url}/oauth/authorize?{query}", {**form, "csrf_token": "other"}, headers={"Cookie": csrf_cookie})
-    assert mismatched[0] == 400
-    assert "CSRF token mismatch" in mismatched[2]
-
-    swapped_query = _authorize_query(client_id, scope="mail:read mail:send")
-    swapped = _form("POST", f"{base_url}/oauth/authorize?{swapped_query}", form, headers={"Cookie": csrf_cookie})
-    assert swapped[0] == 400
-    assert "Invalid OAuth authorization CSRF cookie" in swapped[2]
-
-    ok = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})
-    assert ok[0] == 302
-    assert f"{AUTHORIZE_CSRF_COOKIE}=;" in ok[1]["set-cookie"]
+    assert status == 400
+    assert "expired or already been used" in raw
 
 
 def test_authorize_post_rate_limit_blocks_before_credential_auth(server_env, monkeypatch):
@@ -349,6 +382,10 @@ def test_authorize_post_rate_limit_blocks_before_credential_auth(server_env, mon
         }
 
         assert _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})[0] == 302
+        status, headers, html = _request("GET", f"{base_url}/oauth/authorize?{query}")
+        csrf_token = _csrf_token_from_html(html)
+        csrf_cookie = headers["set-cookie"].split(";", 1)[0]
+        form["csrf_token"] = csrf_token
         status, _, raw = _form("POST", f"{base_url}/oauth/authorize?{query}", form, headers={"Cookie": csrf_cookie})
 
         assert status == 429

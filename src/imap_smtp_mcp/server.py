@@ -59,6 +59,7 @@ class MCPHTTPServer(ThreadingHTTPServer):
         self.tool_controller = tool_controller or MailToolController(config)
         self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir, debug_unredacted_logs=config.debug_unredacted_logs)
         self.rate_limiter = OAuthRateLimiter(config)
+        self.authorize_csrf_store = AuthorizeCsrfStore(config.oauth.authorization_code_ttl_seconds)
 
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
@@ -130,6 +131,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_oauth_error(exc, status=HTTPStatus.BAD_REQUEST)
             return
         csrf_token = secrets.token_urlsafe(32)
+        self.server.authorize_csrf_store.issue(raw_query, csrf_token)
         cookie_value = _sign_authorize_cookie(self.server.config, csrf_token, raw_query)
         self._send_html(
             _login_form(
@@ -151,6 +153,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self.server.oauth_service.validate_authorize_request(query)
             cookie_token = _verify_authorize_cookie_for_query(self.server.config, raw_query, self.headers.get("Cookie", ""))
             form = self._read_form()
+            self.server.authorize_csrf_store.consume(raw_query, cookie_token)
             _verify_authorize_form_token(cookie_token, form.get("csrf_token", ""))
             self.server.rate_limiter.check_authorize(self.client_address[0], query.get("client_id", ""), form.get("imap_username", ""))
             redirect = self.server.oauth_service.authorize_with_credentials(
@@ -332,6 +335,29 @@ class OAuthRateLimiter:
             if count >= limit:
                 raise OAuthError("slow_down", "Too many OAuth attempts; try again later")
             self._buckets[key] = (count + 1, reset_at)
+
+
+class AuthorizeCsrfStore:
+    def __init__(self, ttl_seconds: int) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._lock = threading.RLock()
+        self._tokens: dict[str, tuple[str, float]] = {}
+
+    def issue(self, raw_query: str, token: str) -> None:
+        query_hash = hashlib.sha256(raw_query.encode("utf-8")).hexdigest()
+        with self._lock:
+            self._tokens[token] = (query_hash, time.monotonic() + self._ttl_seconds)
+
+    def consume(self, raw_query: str, token: str) -> None:
+        query_hash = hashlib.sha256(raw_query.encode("utf-8")).hexdigest()
+        now = time.monotonic()
+        with self._lock:
+            stored = self._tokens.pop(token, None)
+        if stored is None:
+            raise OAuthError("invalid_request", "OAuth authorization CSRF token has expired or already been used")
+        stored_query_hash, expires_at = stored
+        if now > expires_at or not hmac.compare_digest(stored_query_hash, query_hash):
+            raise OAuthError("invalid_request", "OAuth authorization CSRF token has expired or already been used")
 
 
 def _single_value_query(raw: str) -> dict[str, str]:
