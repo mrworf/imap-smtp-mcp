@@ -7,7 +7,7 @@ from email.message import EmailMessage
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, PermissionDisabledError
-from .imap_adapter import ImapAdapter
+from .imap_adapter import ImapAdapter, encode_mailbox_name
 from .smtp_adapter import SmtpAdapter, SmtpAdapterError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -71,7 +71,7 @@ class SendEmailService:
         if append_to_sent:
             try:
                 imap_client = self._imap_adapter.connect(imap_username, imap_password)
-                imap_client.append(self._config.sent_folder, None, None, msg.as_bytes())
+                imap_client.append(encode_mailbox_name(self._config.sent_folder), None, None, msg.as_bytes())
                 imap_client.logout()
             except Exception as exc:
                 raise BackendUnavailableError("Email sent but failed to append to sent folder") from exc

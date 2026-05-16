@@ -4,7 +4,7 @@ import pytest
 
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from imap_smtp_mcp.imap_adapter import ImapAdapter
+from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_mailbox_name
 from imap_smtp_mcp.read_tools import ReadOnlyMailboxService
 from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 
@@ -12,6 +12,7 @@ from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 class FakeMailboxClient:
     def __init__(self):
         self.uid_calls = []
+        self.selected_folders = []
         self.messages = {
             "1": self._build("Hello", "a@example.com", "b@example.com", "body one"),
             "2": self._build_html("Html", "c@example.com", "d@example.com", "<p>Hello <b>world</b></p>"),
@@ -42,7 +43,10 @@ class FakeMailboxClient:
         return ("OK", [b'(\\HasNoChildren) "/" "INBOX"'])
 
     def select(self, folder):
-        return ("OK", [b"2"]) if folder == "INBOX" else ("NO", [b""])
+        self.selected_folders.append(folder)
+        if folder in {encode_mailbox_name("INBOX"), encode_mailbox_name("MCP Smoke Folder")}:
+            return ("OK", [b"2"])
+        return ("NO", [b""])
 
     def uid(self, command, *args):
         self.uid_calls.append((command, args))
@@ -146,6 +150,15 @@ def test_search_emails_accepts_imap_date_criteria(base_env):
 
     assert result == ("2",)
     assert ("search", (None, "SINCE", "13-May-2026", "BEFORE", "14-May-2026")) in client.uid_calls
+
+
+def test_read_tools_quote_folder_names_with_spaces(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    assert service.search_emails("u", "p", "MCP Smoke Folder", "hello", limit=1) == ("1",)
+
+    assert client.selected_folders == [encode_mailbox_name("MCP Smoke Folder")]
 
 
 def test_search_emails_keeps_non_criteria_phrases_as_text(base_env):

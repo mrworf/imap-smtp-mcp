@@ -3,7 +3,7 @@ from __future__ import annotations
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from .imap_adapter import ImapAdapter, ImapAdapterError
+from .imap_adapter import ImapAdapter, ImapAdapterError, encode_mailbox_name
 from .validation import validate_single_message_uid
 
 
@@ -28,7 +28,7 @@ class WriteMailboxService:
         return out
 
     def _select_folder(self, client, folder: str) -> None:
-        status, _ = client.select(folder)
+        status, _ = client.select(encode_mailbox_name(folder))
         if status != "OK":
             raise NotFoundError(f"Folder not found: {folder}")
 
@@ -50,7 +50,7 @@ class WriteMailboxService:
         folder_name = self._validate_single_line("folder", folder)
         try:
             client = self._imap_adapter.connect(username, password)
-            status, _ = client.create(folder_name)
+            status, _ = client.create(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise BackendUnavailableError("Failed to create folder")
         except ImapAdapterError as exc:
@@ -64,7 +64,7 @@ class WriteMailboxService:
             client = self._imap_adapter.connect(username, password)
             self._ensure_folder_exists(client, src)
             self._ensure_folder_absent(client, dst)
-            status, _ = client.rename(src, dst)
+            status, _ = client.rename(encode_mailbox_name(src), encode_mailbox_name(dst))
             if status != "OK":
                 raise BackendUnavailableError("Failed to rename folder")
         except ImapAdapterError as exc:
@@ -76,7 +76,7 @@ class WriteMailboxService:
         try:
             client = self._imap_adapter.connect(username, password)
             self._ensure_folder_exists(client, folder_name)
-            status, _ = client.delete(folder_name)
+            status, _ = client.delete(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise BackendUnavailableError("Failed to delete folder")
         except ImapAdapterError as exc:
@@ -114,7 +114,7 @@ class WriteMailboxService:
             self._select_folder(client, src)
             self._ensure_uid_exists(client, uid_value)
             self._ensure_folder_exists(client, dst)
-            status, _ = client.uid("copy", uid_value, dst)
+            status, _ = client.uid("copy", uid_value, encode_mailbox_name(dst))
             if status != "OK":
                 raise BackendUnavailableError("Failed to copy email")
             if is_move:

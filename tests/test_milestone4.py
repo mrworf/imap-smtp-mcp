@@ -7,7 +7,7 @@ import pytest
 
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, PermissionDisabledError
-from imap_smtp_mcp.imap_adapter import ImapAdapter
+from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_mailbox_name
 from imap_smtp_mcp.send_tools import SendEmailService
 from imap_smtp_mcp.smtp_adapter import SmtpAdapter, SmtpTlsError
 
@@ -39,12 +39,14 @@ class FakeSmtpClient:
 class FakeImapClient:
     def __init__(self) -> None:
         self.appended = False
+        self.appended_folder: str | None = None
 
     def login(self, user, password):
         return "OK", []
 
     def append(self, folder, flags, date_time, message):
         self.appended = True
+        self.appended_folder = folder
         return "OK", []
 
     def logout(self):
@@ -149,6 +151,7 @@ def test_send_email_append_default_and_disable(config):
     service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
     assert smtp_client.sent
     assert imap_client.appended
+    assert imap_client.appended_folder == encode_mailbox_name("Sent")
 
     imap_client2 = FakeImapClient()
     service2 = SendEmailService(
@@ -158,6 +161,21 @@ def test_send_email_append_default_and_disable(config):
     )
     service2.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body", append_to_sent=False)
     assert not imap_client2.appended
+
+
+def test_send_email_quotes_sent_folder_with_spaces(config, monkeypatch):
+    monkeypatch.setenv("IMAP_SENT_FOLDER", "Sent Items")
+    cfg = load_config()
+    imap_client = FakeImapClient()
+    service = SendEmailService(
+        SmtpAdapter(cfg, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()),
+        ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: imap_client),
+        cfg,
+    )
+
+    service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
+
+    assert imap_client.appended_folder == encode_mailbox_name("Sent Items")
 
 
 def test_send_email_append_failure_is_clear(config):

@@ -119,5 +119,26 @@ def _parse_list_folder_name(decoded: str) -> str:
     if value.endswith('"'):
         start = value.rfind(' "')
         if start >= 0:
-            return value[start + 2 : -1]
+            return _unescape_quoted_mailbox(value[start + 2 : -1])
     return value.rsplit(" ", 1)[-1].strip('"')
+
+
+def encode_mailbox_name(name: str) -> str:
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _unescape_quoted_mailbox(name: str) -> str:
+    out: list[str] = []
+    escaped = False
+    for char in name:
+        if escaped:
+            out.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        else:
+            out.append(char)
+    if escaped:
+        out.append("\\")
+    return "".join(out)

@@ -3,7 +3,7 @@ import ssl
 import pytest
 
 from imap_smtp_mcp.config import ConfigError, load_config
-from imap_smtp_mcp.imap_adapter import FolderResolutionError, ImapAdapter, ImapConnectionError, ImapTlsError
+from imap_smtp_mcp.imap_adapter import FolderResolutionError, ImapAdapter, ImapConnectionError, ImapTlsError, encode_mailbox_name
 
 
 class FakeImapClient:
@@ -116,6 +116,26 @@ def test_folder_listing_parses_unquoted_names(base_env):
     adapter = ImapAdapter(config=config)
 
     assert adapter.list_folders(client) == ("Sent", "Drafts", "INBOX")
+
+
+def test_folder_listing_unescapes_quoted_names(base_env):
+    config = load_config()
+    client = FakeImapClient(
+        folders=[
+            b'(\\HasNoChildren) "/" "MCP Smoke marker"',
+            b'(\\HasNoChildren) "/" "Quote \\" Folder"',
+            b'(\\HasNoChildren) "/" "Slash \\\\ Folder"',
+        ]
+    )
+    adapter = ImapAdapter(config=config)
+
+    assert adapter.list_folders(client) == ("MCP Smoke marker", 'Quote " Folder', "Slash \\ Folder")
+
+
+def test_encode_mailbox_name_quotes_and_escapes_special_characters() -> None:
+    assert encode_mailbox_name("MCP Smoke marker") == '"MCP Smoke marker"'
+    assert encode_mailbox_name('Quote " Folder') == '"Quote \\" Folder"'
+    assert encode_mailbox_name("Slash \\ Folder") == '"Slash \\\\ Folder"'
 
 
 def test_configured_folder_missing_fails_deterministically(base_env):

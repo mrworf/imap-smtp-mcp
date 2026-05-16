@@ -4,7 +4,7 @@ import pytest
 
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from imap_smtp_mcp.imap_adapter import ImapAdapter
+from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_mailbox_name
 from imap_smtp_mcp.write_tools import WriteMailboxService
 
 
@@ -26,7 +26,15 @@ class FakeImapClient:
         return "OK", []
 
     def list(self):
-        return "OK", [b'(\\HasNoChildren) "/" "Inbox"', b'(\\HasNoChildren) "/" "Archive"', b'(\\HasNoChildren) "/" "Trash"']
+        return "OK", [
+            b'(\\HasNoChildren) "/" "Inbox"',
+            b'(\\HasNoChildren) "/" "Archive"',
+            b'(\\HasNoChildren) "/" "Trash"',
+            b'(\\HasNoChildren) "/" "MCP Smoke marker"',
+            b'(\\HasNoChildren) "/" "MCP Smoke Renamed marker"',
+            b'(\\HasNoChildren) "/" "Quote \\" Folder"',
+            b'(\\HasNoChildren) "/" "Slash \\\\ Folder"',
+        ]
 
     def create(self, folder):
         self.created_folder = folder
@@ -136,9 +144,38 @@ def test_folder_lifecycle_operations_success(monkeypatch):
     svc.rename_folder("u", "p", "Archive", "MCP_TEST_RENAMED")
     svc.delete_folder("u", "p", "Archive")
 
-    assert client.created_folder == "MCP_TEST"
-    assert client.renamed_folder == ("Archive", "MCP_TEST_RENAMED")
-    assert client.deleted_folder == "Archive"
+    assert client.created_folder == encode_mailbox_name("MCP_TEST")
+    assert client.renamed_folder == (encode_mailbox_name("Archive"), encode_mailbox_name("MCP_TEST_RENAMED"))
+    assert client.deleted_folder == encode_mailbox_name("Archive")
+
+
+def test_folder_lifecycle_quotes_names_with_spaces_and_special_characters(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    svc.create_folder("u", "p", "MCP Smoke marker")
+    svc.rename_folder("u", "p", "MCP Smoke marker", "MCP Smoke Renamed fresh")
+    svc.delete_folder("u", "p", 'Quote " Folder')
+    svc.create_folder("u", "p", "Slash \\ Folder")
+
+    assert client.created_folder == encode_mailbox_name("Slash \\ Folder")
+    assert client.renamed_folder == (encode_mailbox_name("MCP Smoke marker"), encode_mailbox_name("MCP Smoke Renamed fresh"))
+    assert client.deleted_folder == encode_mailbox_name('Quote " Folder')
+
+
+def test_copy_and_move_quote_target_folder_names_with_spaces(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    svc.copy_email("u", "p", "Inbox", "MCP Smoke Renamed marker", "42")
+    assert client.copied_to == encode_mailbox_name("MCP Smoke Renamed marker")
+
+    svc.move_email("u", "p", "Inbox", "MCP Smoke Renamed marker", "42")
+    assert client.copied_to == encode_mailbox_name("MCP Smoke Renamed marker")
 
 
 def test_folder_operations_validate_names(service):

@@ -10,7 +10,7 @@ from email.message import Message
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from .imap_adapter import ImapAdapter, ImapAdapterError
+from .imap_adapter import ImapAdapter, ImapAdapterError, encode_mailbox_name
 from .validation import validate_single_message_uid
 
 MAX_RESULTS = 100
@@ -172,7 +172,7 @@ class ReadOnlyMailboxService:
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "query": query_text, "limit": str(limit)}) from exc
         try:
-            status, _ = client.select(folder_name)
+            status, _ = client.select(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
             status, ids = client.uid("search", None, *search_args)
@@ -196,7 +196,7 @@ class ReadOnlyMailboxService:
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
         try:
-            status, _ = client.select(folder_name)
+            status, _ = client.select(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
 
@@ -232,7 +232,7 @@ class ReadOnlyMailboxService:
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
         try:
-            status, _ = client.select(folder_name)
+            status, _ = client.select(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
 
