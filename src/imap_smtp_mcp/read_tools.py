@@ -1,22 +1,59 @@
 from __future__ import annotations
 
+import json
 import re
-import shlex
 from html.parser import HTMLParser
 from dataclasses import dataclass
+from datetime import date
 from email import message_from_bytes
 from email.message import Message
+from typing import Any
 
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from .imap_adapter import ImapAdapter, ImapAdapterError, encode_mailbox_name
+from .imap_adapter import ImapAdapter, ImapAdapterError, encode_imap_quoted_string, encode_mailbox_name
 from .validation import validate_single_message_uid
 
 MAX_RESULTS = 100
-_IMAP_DATE_RE = re.compile(r"^\d{1,2}-[A-Za-z]{3}-\d{4}$")
-_IMAP_DATE_CRITERIA = {"SINCE", "BEFORE", "ON", "SENTSINCE", "SENTBEFORE", "SENTON"}
-_IMAP_MONTHS = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"}
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")
+_KEYWORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_UID_SET_RE = re.compile(r"^(\*|[1-9][0-9]*)(:(\*|[1-9][0-9]*))?(,(\*|[1-9][0-9]*)(:(\*|[1-9][0-9]*))?)*$")
+_IMAP_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_STRING_CRITERIA = {
+    "text": "TEXT",
+    "body": "BODY",
+    "subject": "SUBJECT",
+    "from": "FROM",
+    "to": "TO",
+    "cc": "CC",
+    "bcc": "BCC",
+}
+_DATE_CRITERIA = {
+    "since": "SINCE",
+    "before": "BEFORE",
+    "on": "ON",
+    "sentsince": "SENTSINCE",
+    "sentbefore": "SENTBEFORE",
+    "senton": "SENTON",
+}
+_FLAG_CRITERIA = {
+    "all": "ALL",
+    "new": "NEW",
+    "old": "OLD",
+    "recent": "RECENT",
+    "seen": "SEEN",
+    "unseen": "UNSEEN",
+    "answered": "ANSWERED",
+    "unanswered": "UNANSWERED",
+    "deleted": "DELETED",
+    "undeleted": "UNDELETED",
+    "draft": "DRAFT",
+    "undraft": "UNDRAFT",
+    "flagged": "FLAGGED",
+    "unflagged": "UNFLAGGED",
+}
 
 
 @dataclass(frozen=True)
@@ -50,40 +87,118 @@ def _validate_nonempty_single_line(name: str, value: str) -> str:
     return normalized
 
 
-def _search_arguments(query: str) -> tuple[str, ...]:
+def _search_arguments(criteria: Any) -> tuple[str, ...]:
+    args = _compile_criteria(criteria)
+    if not args:
+        raise InvalidInputError("criteria must not be empty")
+    return args
+
+
+def _compile_criteria(criteria: Any) -> tuple[str, ...]:
+    if not isinstance(criteria, dict):
+        raise InvalidInputError("criteria must be an object")
+    keys = set(criteria)
+    logic_keys = keys.intersection({"and", "or", "not"})
+    if logic_keys:
+        if len(keys) != 1:
+            raise InvalidInputError("criteria logic nodes must not include extra fields")
+        if "and" in criteria:
+            children = criteria["and"]
+            if not isinstance(children, list) or not children:
+                raise InvalidInputError("criteria and must be a non-empty list")
+            out: list[str] = []
+            for child in children:
+                out.extend(_compile_criteria(child))
+            return tuple(out)
+        if "or" in criteria:
+            children = criteria["or"]
+            if not isinstance(children, list) or len(children) != 2:
+                raise InvalidInputError("criteria or must contain exactly two operands")
+            return ("OR", _criteria_group(_compile_criteria(children[0])), _criteria_group(_compile_criteria(children[1])))
+        return ("NOT", _criteria_group(_compile_criteria(criteria["not"])))
+
+    criterion_type = criteria.get("type")
+    if not isinstance(criterion_type, str):
+        raise InvalidInputError("criteria leaf must include type")
+    kind = criterion_type.lower()
+    if kind in _STRING_CRITERIA:
+        _require_only_fields(criteria, {"type", "value"})
+        return (_STRING_CRITERIA[kind], encode_imap_quoted_string(_criteria_text_value(criteria, "value")))
+    if kind == "header":
+        _require_only_fields(criteria, {"type", "name", "value"})
+        name = _criteria_text_value(criteria, "name")
+        if not _HEADER_NAME_RE.match(name):
+            raise InvalidInputError("criteria header name is invalid")
+        return ("HEADER", name, encode_imap_quoted_string(_criteria_text_value(criteria, "value")))
+    if kind in _DATE_CRITERIA:
+        _require_only_fields(criteria, {"type", "value"})
+        return (_DATE_CRITERIA[kind], _criteria_date_value(criteria))
+    if kind in _FLAG_CRITERIA:
+        _reject_unexpected_value(criteria)
+        return (_FLAG_CRITERIA[kind],)
+    if kind in {"larger", "smaller"}:
+        _require_only_fields(criteria, {"type", "value"})
+        return (kind.upper(), _criteria_positive_int(criteria, "value"))
+    if kind == "uid":
+        _require_only_fields(criteria, {"type", "value"})
+        value = _criteria_text_value(criteria, "value")
+        if not _UID_SET_RE.match(value):
+            raise InvalidInputError("criteria uid must be an IMAP UID set")
+        return ("UID", value)
+    if kind in {"keyword", "unkeyword"}:
+        _require_only_fields(criteria, {"type", "value"})
+        value = _criteria_text_value(criteria, "value")
+        if not _KEYWORD_RE.match(value):
+            raise InvalidInputError("criteria keyword is invalid")
+        return (kind.upper(), value)
+    raise InvalidInputError(f"criteria type is unsupported: {criterion_type}")
+
+
+def _criteria_group(args: tuple[str, ...]) -> str:
+    if len(args) == 1:
+        return args[0]
+    return f"({' '.join(args)})"
+
+
+def _criteria_text_value(criteria: dict[str, Any], name: str) -> str:
+    value = criteria.get(name)
+    if not isinstance(value, str):
+        raise InvalidInputError(f"criteria {name} must be a string")
+    if "\r" in value or "\n" in value:
+        raise InvalidInputError(f"criteria {name} must be single-line")
+    normalized = value.strip()
+    if not normalized:
+        raise InvalidInputError(f"criteria {name} must not be empty")
+    return normalized
+
+
+def _criteria_date_value(criteria: dict[str, Any]) -> str:
+    raw = _criteria_text_value(criteria, "value")
+    if not _ISO_DATE_RE.match(raw):
+        raise InvalidInputError("criteria date must use YYYY-MM-DD")
     try:
-        tokens = tuple(shlex.split(query))
+        parsed = date.fromisoformat(raw)
     except ValueError as exc:
-        raw_first = query.split(maxsplit=1)[0].upper() if query.split() else ""
-        if raw_first in _IMAP_DATE_CRITERIA:
-            raise InvalidInputError("query has malformed IMAP criteria quoting") from exc
-        return ("TEXT", query)
-
-    if not tokens:
-        return ("TEXT", query)
-    first = tokens[0].upper()
-    if first not in _IMAP_DATE_CRITERIA:
-        return ("TEXT", query)
-    if len(tokens) % 2 != 0:
-        raise InvalidInputError("query must use IMAP date criteria as KEY DATE pairs")
-
-    out: list[str] = []
-    for idx in range(0, len(tokens), 2):
-        key = tokens[idx].upper()
-        date = tokens[idx + 1]
-        if key not in _IMAP_DATE_CRITERIA:
-            raise InvalidInputError("query contains unsupported IMAP date criteria")
-        if not _valid_imap_date(date):
-            raise InvalidInputError("query contains invalid IMAP date criteria")
-        out.extend((key, date))
-    return tuple(out)
+        raise InvalidInputError("criteria date is invalid") from exc
+    return f"{parsed.day}-{_IMAP_MONTHS[parsed.month - 1]}-{parsed.year}"
 
 
-def _valid_imap_date(value: str) -> bool:
-    if not _IMAP_DATE_RE.match(value):
-        return False
-    day, month, _ = value.split("-")
-    return 1 <= int(day) <= 31 and month.upper() in _IMAP_MONTHS
+def _criteria_positive_int(criteria: dict[str, Any], name: str) -> str:
+    value = criteria.get(name)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise InvalidInputError(f"criteria {name} must be a positive integer")
+    return str(value)
+
+
+def _reject_unexpected_value(criteria: dict[str, Any]) -> None:
+    if set(criteria) != {"type"}:
+        raise InvalidInputError("criteria flag leaves must only include type")
+
+
+def _require_only_fields(criteria: dict[str, Any], allowed: set[str]) -> None:
+    extra = set(criteria) - allowed
+    if extra:
+        raise InvalidInputError(f"criteria contains unsupported field: {sorted(extra)[0]}")
 
 
 def _extract_plain_text(msg: Message) -> str:
@@ -159,29 +274,29 @@ class ReadOnlyMailboxService:
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "list"}) from exc
 
-    def search_emails(self, username: str, password: str, folder: str, query: str, limit: int = 50) -> tuple[str, ...]:
+    def search_emails(self, username: str, password: str, folder: str, criteria: Any, limit: int = 50) -> tuple[str, ...]:
         self._enforce_action("search_emails")
         folder_name = _validate_nonempty_single_line("folder", folder)
-        query_text = _validate_nonempty_single_line("query", query)
         if limit <= 0 or limit > MAX_RESULTS:
             raise InvalidInputError(f"limit must be between 1 and {MAX_RESULTS}")
-        search_args = _search_arguments(query_text)
+        search_args = _search_arguments(criteria)
+        criteria_text = json.dumps(criteria, sort_keys=True, separators=(",", ":"))
 
         try:
             client = self._imap_adapter.connect(username, password)
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "query": query_text, "limit": str(limit)}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)}) from exc
         try:
             status, _ = client.select(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
             status, ids = client.uid("search", None, *search_args)
             if status != "OK":
-                raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder_name, "query": query_text, "limit": str(limit)})
+                raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)})
             all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
             return tuple(all_ids[:limit])
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "search", "folder": folder_name, "query": query_text, "limit": str(limit)}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "search", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)}) from exc
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20) -> tuple[EmailSummary, ...]:
         self._enforce_action("list_emails")

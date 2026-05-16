@@ -167,7 +167,7 @@ def test_example_prompts_cover_common_and_full_capability_flows() -> None:
     assert prompts_path.exists()
     prompts = prompts_path.read_text(encoding="utf-8")
 
-    assert "SINCE 13-May-2026 BEFORE 14-May-2026" in prompts
+    assert '{"type":"since","value":"2026-05-13"}' in prompts
     assert "Full Capability Smoke Prompt" in prompts
     assert "guarded skip" in prompts
     assert "call empty_trash only if Trash is confirmed to contain no messages except MCP-created messages" in prompts

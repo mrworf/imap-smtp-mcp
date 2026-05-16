@@ -132,11 +132,15 @@ def _safe_delete_folder(client: MCPClient, folder: str) -> None:
 
 def _find_marker_uid(client: MCPClient, folder: str, marker: str, args: SuiteConfig, *, step: str, limit: int = 20) -> str:
     for _ in range(args.poll_attempts):
-        uids = _extract_uids(client.call_tool("search_emails", {"folder": folder, "query": marker, "limit": limit}))
+        uids = _extract_uids(client.call_tool("search_emails", {"folder": folder, "criteria": _text_criteria(marker), "limit": limit}))
         if uids:
             return uids[-1]
         time.sleep(args.poll_interval_seconds)
     raise RuntimeError(f"Could not find marker UID for {step} in folder {folder}: {marker}")
+
+
+def _text_criteria(value: str) -> dict[str, str]:
+    return {"type": "text", "value": value}
 
 
 def _env_required(name: str) -> str:
@@ -475,7 +479,7 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
         client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": test_folder, "uid": move_uid})
 
         print("[10/15] search copied/moved in test folder")
-        moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": test_folder, "query": marker, "limit": 20}))
+        moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": test_folder, "criteria": _text_criteria(marker), "limit": 20}))
         if not moved_uids:
             raise RuntimeError("Could not find message in target test folder after move/copy.")
         test_uid = moved_uids[-1]
@@ -487,7 +491,7 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
         for uid in moved_uids:
             client.call_tool("move_to_trash", {"source_folder": test_folder, "uid": uid})
         print("[13/15] delete_email_permanent")
-        trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "query": marker, "limit": 20}))
+        trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "criteria": _text_criteria(marker), "limit": 20}))
         for uid in trash_uids:
             client.call_tool("delete_email_permanent", {"folder": args.trash_folder, "uid": uid})
         print("[14/15] empty_trash")

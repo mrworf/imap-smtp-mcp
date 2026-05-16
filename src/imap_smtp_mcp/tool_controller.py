@@ -43,10 +43,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_folders": {"type": "object", "properties": {}, "additionalProperties": False},
     "search_emails": {
         "type": "object",
-        "required": ["folder", "query"],
+        "required": ["folder", "criteria"],
         "properties": {
             "folder": {"type": "string"},
-            "query": {"type": "string", "description": "Plain text to search for, or IMAP date criteria such as SINCE 13-May-2026 BEFORE 14-May-2026."},
+            "criteria": {
+                "type": "object",
+                "description": "Structured IMAP SEARCH expression. Use leaves like {'type':'text','value':'marker'}, {'type':'subject','value':'invoice'}, {'type':'since','value':'2026-05-15'}, {'type':'unseen'}, or logic nodes {'and':[...]} {'or':[left,right]} {'not':expr}. Dates are YYYY-MM-DD.",
+                "additionalProperties": True,
+            },
             "limit": {"type": "integer", "default": 50},
         },
     },
@@ -176,7 +180,7 @@ class MailToolController:
         if name == "list_folders":
             return {"folders": self.read_service.list_folders(c.imap_username, c.imap_password)}
         if name == "search_emails":
-            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, str(args["folder"]), str(args["query"]), int(args.get("limit", 50)))}
+            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, str(args["folder"]), args["criteria"], int(args.get("limit", 50)))}
         if name == "list_emails":
             return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, str(args["folder"]), int(args.get("offset", 0)), int(args.get("limit", 20)))}
         if name == "read_email":

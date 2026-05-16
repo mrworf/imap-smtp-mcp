@@ -52,8 +52,8 @@ class FakeReadService:
 
 
 class FailingReadService:
-    def search_emails(self, username: str, password: str, folder: str, query: str, limit: int = 50):
-        raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder, "query": query, "limit": str(limit)}) from RuntimeError("socket timeout")
+    def search_emails(self, username: str, password: str, folder: str, criteria: object, limit: int = 50):
+        raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder, "criteria": json.dumps(criteria, sort_keys=True, separators=(",", ":")), "limit": str(limit)}) from RuntimeError("socket timeout")
 
 
 def _credentials() -> MailCredentials:
@@ -287,7 +287,7 @@ def test_tool_failure_audit_includes_exception_details(controller_env, tmp_path)
     with pytest.raises(BackendUnavailableError, match="IMAP search failed"):
         controller.call_tool(
             "search_emails",
-            {"folder": "INBOX", "query": "hello", "limit": 5},
+            {"folder": "INBOX", "criteria": {"type": "text", "value": "hello"}, "limit": 5},
             _credentials(),
             request_id="search-1",
             subject="subject",

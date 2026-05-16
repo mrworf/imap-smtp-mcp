@@ -4,7 +4,7 @@ import pytest
 
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
-from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_mailbox_name
+from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_imap_quoted_string, encode_mailbox_name
 from imap_smtp_mcp.read_tools import ReadOnlyMailboxService
 from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 
@@ -50,14 +50,16 @@ class FakeMailboxClient:
 
     def uid(self, command, *args):
         self.uid_calls.append((command, args))
-        if command == "search" and args == (None, "TEXT", "hello"):
+        if command == "search" and args == (None, "TEXT", encode_imap_quoted_string("hello")):
             return ("OK", [b"1 2"])
-        if command == "search" and args == (None, "TEXT", "hello SINCE yesterday"):
+        if command == "search" and args == (None, "TEXT", encode_imap_quoted_string("hello SINCE yesterday")):
             return ("OK", [b"2"])
         if command == "search" and args == (None, "SINCE", "13-May-2026", "BEFORE", "14-May-2026"):
             return ("OK", [b"2"])
         if command == "search" and args == (None, "ALL"):
             return ("OK", [b"1 2"])
+        if command == "search" and args[:1] == (None,):
+            return ("OK", [b"1"])
         if command == "fetch":
             uid = args[0]
             if uid not in self.messages:
@@ -123,7 +125,7 @@ def test_readonly_tools_positive_flows(base_env):
     service = _service(config)
 
     assert service.list_folders("u", "p") == ("INBOX",)
-    assert service.search_emails("u", "p", "INBOX", "hello", limit=1) == ("1",)
+    assert service.search_emails("u", "p", "INBOX", {"type": "text", "value": "hello"}, limit=1) == ("1",)
 
     listed = service.list_emails("u", "p", "INBOX", offset=0, limit=2)
     assert len(listed) == 2
@@ -133,20 +135,25 @@ def test_readonly_tools_positive_flows(base_env):
     assert "Hello **world**" in read.body_text
 
 
-def test_search_emails_uses_plain_text_search_by_default(base_env):
+def test_search_emails_uses_structured_text_criteria(base_env):
     config = load_config()
     service, client = _service_with_client(config)
 
-    assert service.search_emails("u", "p", "INBOX", "hello", limit=2) == ("1", "2")
+    assert service.search_emails("u", "p", "INBOX", {"type": "text", "value": "hello"}, limit=2) == ("1", "2")
 
-    assert ("search", (None, "TEXT", "hello")) in client.uid_calls
+    assert ("search", (None, "TEXT", encode_imap_quoted_string("hello"))) in client.uid_calls
 
 
-def test_search_emails_accepts_imap_date_criteria(base_env):
+def test_search_emails_accepts_structured_date_criteria(base_env):
     config = load_config()
     service, client = _service_with_client(config)
 
-    result = service.search_emails("u", "p", "INBOX", "SINCE 13-May-2026 BEFORE 14-May-2026")
+    result = service.search_emails(
+        "u",
+        "p",
+        "INBOX",
+        {"and": [{"type": "since", "value": "2026-05-13"}, {"type": "before", "value": "2026-05-14"}]},
+    )
 
     assert result == ("2",)
     assert ("search", (None, "SINCE", "13-May-2026", "BEFORE", "14-May-2026")) in client.uid_calls
@@ -156,53 +163,131 @@ def test_read_tools_quote_folder_names_with_spaces(base_env):
     config = load_config()
     service, client = _service_with_client(config)
 
-    assert service.search_emails("u", "p", "MCP Smoke Folder", "hello", limit=1) == ("1",)
+    assert service.search_emails("u", "p", "MCP Smoke Folder", {"type": "text", "value": "hello"}, limit=1) == ("1",)
 
     assert client.selected_folders == [encode_mailbox_name("MCP Smoke Folder")]
 
 
-def test_search_emails_keeps_non_criteria_phrases_as_text(base_env):
+@pytest.mark.parametrize(
+    ("criteria", "expected"),
+    [
+        ({"type": "text", "value": "hello world"}, ("TEXT", encode_imap_quoted_string("hello world"))),
+        ({"type": "subject", "value": 'quote " marker'}, ("SUBJECT", encode_imap_quoted_string('quote " marker'))),
+        ({"type": "body", "value": "slash \\ marker"}, ("BODY", encode_imap_quoted_string("slash \\ marker"))),
+        ({"type": "from", "value": "alice@example.com"}, ("FROM", encode_imap_quoted_string("alice@example.com"))),
+        ({"type": "to", "value": "bob@example.com"}, ("TO", encode_imap_quoted_string("bob@example.com"))),
+        ({"type": "cc", "value": "team@example.com"}, ("CC", encode_imap_quoted_string("team@example.com"))),
+        ({"type": "bcc", "value": "hidden@example.com"}, ("BCC", encode_imap_quoted_string("hidden@example.com"))),
+        ({"type": "header", "name": "Message-ID", "value": "abc 123"}, ("HEADER", "Message-ID", encode_imap_quoted_string("abc 123"))),
+        ({"type": "on", "value": "2026-05-15"}, ("ON", "15-May-2026")),
+        ({"type": "sentsince", "value": "2026-05-15"}, ("SENTSINCE", "15-May-2026")),
+        ({"type": "sentbefore", "value": "2026-05-15"}, ("SENTBEFORE", "15-May-2026")),
+        ({"type": "senton", "value": "2026-05-15"}, ("SENTON", "15-May-2026")),
+        ({"type": "seen"}, ("SEEN",)),
+        ({"type": "unseen"}, ("UNSEEN",)),
+        ({"type": "answered"}, ("ANSWERED",)),
+        ({"type": "deleted"}, ("DELETED",)),
+        ({"type": "draft"}, ("DRAFT",)),
+        ({"type": "flagged"}, ("FLAGGED",)),
+        ({"type": "larger", "value": 1024}, ("LARGER", "1024")),
+        ({"type": "smaller", "value": 2048}, ("SMALLER", "2048")),
+        ({"type": "uid", "value": "1,3:5,*"}, ("UID", "1,3:5,*")),
+        ({"type": "keyword", "value": "important"}, ("KEYWORD", "important")),
+        ({"type": "unkeyword", "value": "important"}, ("UNKEYWORD", "important")),
+    ],
+)
+def test_search_emails_compiles_supported_leaf_criteria(base_env, criteria, expected):
     config = load_config()
     service, client = _service_with_client(config)
 
-    assert service.search_emails("u", "p", "INBOX", "hello SINCE yesterday") == ("2",)
+    assert service.search_emails("u", "p", "INBOX", criteria) == ("1",)
 
-    assert ("search", (None, "TEXT", "hello SINCE yesterday")) in client.uid_calls
+    assert ("search", (None, *expected)) in client.uid_calls
 
 
-def test_search_emails_rejects_malformed_date_criteria(base_env):
+def test_search_emails_compiles_logic_criteria(base_env):
     config = load_config()
-    service = _service(config)
+    service, client = _service_with_client(config)
 
-    with pytest.raises(InvalidInputError, match="invalid IMAP date criteria"):
-        service.search_emails("u", "p", "INBOX", "SINCE 2026-05-13")
+    criteria = {
+        "and": [
+            {"type": "text", "value": "marker"},
+            {"or": [{"type": "from", "value": "a@example.com"}, {"type": "to", "value": "b@example.com"}]},
+            {"not": {"type": "deleted"}},
+        ]
+    }
 
-    with pytest.raises(InvalidInputError, match="malformed IMAP criteria quoting"):
-        service.search_emails("u", "p", "INBOX", 'SINCE "13-May-2026')
+    assert service.search_emails("u", "p", "INBOX", criteria) == ("1",)
+
+    assert (
+        "search",
+        (
+            None,
+            "TEXT",
+            encode_imap_quoted_string("marker"),
+            "OR",
+            f"(FROM {encode_imap_quoted_string('a@example.com')})",
+            f"(TO {encode_imap_quoted_string('b@example.com')})",
+            "NOT",
+            "DELETED",
+        ),
+    ) in client.uid_calls
 
 
-def test_search_emails_schema_documents_date_criteria():
-    description = TOOL_SCHEMAS["search_emails"]["properties"]["query"]["description"]
+@pytest.mark.parametrize(
+    ("criteria", "message"),
+    [
+        ("hello", "criteria must be an object"),
+        ({}, "criteria leaf must include type"),
+        ({"type": "bogus"}, "unsupported"),
+        ({"type": "text"}, "value must be a string"),
+        ({"type": "text", "value": " \t"}, "value must not be empty"),
+        ({"type": "text", "value": "x\ny"}, "value must be single-line"),
+        ({"type": "since", "value": "13-May-2026"}, "YYYY-MM-DD"),
+        ({"type": "since", "value": "2026-02-31"}, "date is invalid"),
+        ({"type": "uid", "value": "0"}, "UID set"),
+        ({"type": "larger", "value": 0}, "positive integer"),
+        ({"type": "larger", "value": "10"}, "positive integer"),
+        ({"type": "header", "name": "Bad Header", "value": "x"}, "header name"),
+        ({"type": "keyword", "value": "bad flag"}, "keyword"),
+        ({"type": "seen", "value": "x"}, "flag leaves"),
+        ({"and": []}, "non-empty list"),
+        ({"or": [{"type": "seen"}]}, "exactly two operands"),
+        ({"not": {"type": "seen"}, "type": "text"}, "logic nodes"),
+    ],
+)
+def test_search_emails_rejects_invalid_structured_criteria_before_imap(base_env, criteria, message):
+    config = load_config()
+    service, client = _service_with_client(config)
 
-    assert "IMAP date criteria" in description
-    assert "SINCE 13-May-2026 BEFORE 14-May-2026" in description
+    with pytest.raises(InvalidInputError, match=message):
+        service.search_emails("u", "p", "INBOX", criteria)
+
+    assert client.uid_calls == []
+    assert client.selected_folders == []
+
+
+def test_search_emails_schema_documents_structured_criteria():
+    schema = TOOL_SCHEMAS["search_emails"]
+    description = schema["properties"]["criteria"]["description"]
+
+    assert schema["required"] == ["folder", "criteria"]
+    assert "Structured IMAP SEARCH expression" in description
+    assert "{'type':'text','value':'marker'}" in description
 
 
 def test_invalid_input_and_not_found(base_env):
     config = load_config()
     service = _service(config)
 
-    with pytest.raises(InvalidInputError, match="query must be single-line"):
-        service.search_emails("u", "p", "INBOX", "x\ny")
-
     with pytest.raises(InvalidInputError, match="folder must be single-line"):
-        service.search_emails("u", "p", "IN\nBOX", "hello")
+        service.search_emails("u", "p", "IN\nBOX", {"type": "text", "value": "hello"})
 
     with pytest.raises(InvalidInputError, match="uid must be single-line"):
         service.read_email("u", "p", "INBOX", "1\r")
 
     with pytest.raises(InvalidInputError, match="limit must be between 1 and 100"):
-        service.search_emails("u", "p", "INBOX", "hello", limit=101)
+        service.search_emails("u", "p", "INBOX", {"type": "text", "value": "hello"}, limit=101)
 
     with pytest.raises(InvalidInputError, match="offset must be >= 0"):
         service.list_emails("u", "p", "INBOX", offset=-1)
@@ -252,5 +337,5 @@ def test_backend_error_maps_to_stable_mcp_error(base_env):
         service.list_folders("u", "p")
     assert list_exc.value.metadata == {"imap_phase": "connect"}
     with pytest.raises(BackendUnavailableError, match="IMAP backend unavailable") as search_exc:
-        service.search_emails("u", "p", "INBOX", "hello")
-    assert search_exc.value.metadata == {"imap_phase": "connect", "folder": "INBOX", "query": "hello", "limit": "50"}
+        service.search_emails("u", "p", "INBOX", {"type": "text", "value": "hello"})
+    assert search_exc.value.metadata == {"imap_phase": "connect", "folder": "INBOX", "criteria": '{"type":"text","value":"hello"}', "limit": "50"}

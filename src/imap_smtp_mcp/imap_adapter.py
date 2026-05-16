@@ -124,7 +124,11 @@ def _parse_list_folder_name(decoded: str) -> str:
 
 
 def encode_mailbox_name(name: str) -> str:
-    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return encode_imap_quoted_string(name)
+
+
+def encode_imap_quoted_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
