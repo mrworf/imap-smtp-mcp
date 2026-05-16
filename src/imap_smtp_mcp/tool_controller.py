@@ -38,18 +38,134 @@ TOOL_SCOPES = {
     "delete_folder": (WRITE_SCOPE,),
 }
 
+_SEARCH_STRING_TYPES = ("text", "body", "subject", "from", "to", "cc", "bcc")
+_SEARCH_DATE_TYPES = ("since", "before", "on", "sentsince", "sentbefore", "senton")
+_SEARCH_FLAG_TYPES = (
+    "all",
+    "new",
+    "old",
+    "recent",
+    "seen",
+    "unseen",
+    "answered",
+    "unanswered",
+    "deleted",
+    "undeleted",
+    "draft",
+    "undraft",
+    "flagged",
+    "unflagged",
+)
+
+
+_SEARCH_CRITERIA_SCHEMA: dict[str, Any] = {
+    "description": "Structured IMAP SEARCH expression. For exact marker searches across subject, body, and full message text, use {'type':'text','value':'MCP-SMOKE-...'}; use {'type':'subject','value':'...'} only when intentionally narrowing to the Subject header. String values are safely quoted by the server. Dates are YYYY-MM-DD.",
+    "anyOf": [
+        {
+            "type": "object",
+            "description": "Search a string field. The text type searches subject, body, and full message text and is allowed for exact marker searches.",
+            "required": ["type", "value"],
+            "properties": {
+                "type": {"type": "string", "enum": list(_SEARCH_STRING_TYPES)},
+                "value": {"type": "string", "minLength": 1},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search a named message header.",
+            "required": ["type", "name", "value"],
+            "properties": {
+                "type": {"type": "string", "const": "header"},
+                "name": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+                "value": {"type": "string", "minLength": 1},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search by message date using YYYY-MM-DD.",
+            "required": ["type", "value"],
+            "properties": {
+                "type": {"type": "string", "enum": list(_SEARCH_DATE_TYPES)},
+                "value": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search by IMAP message flag state.",
+            "required": ["type"],
+            "properties": {"type": {"type": "string", "enum": list(_SEARCH_FLAG_TYPES)}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search by message size.",
+            "required": ["type", "value"],
+            "properties": {
+                "type": {"type": "string", "enum": ["larger", "smaller"]},
+                "value": {"type": "integer", "minimum": 1},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search by IMAP UID set.",
+            "required": ["type", "value"],
+            "properties": {
+                "type": {"type": "string", "const": "uid"},
+                "value": {"type": "string", "pattern": "^(\\*|[1-9][0-9]*)(:(\\*|[1-9][0-9]*))?(,(\\*|[1-9][0-9]*)(:(\\*|[1-9][0-9]*))?)*$"},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Search by IMAP keyword.",
+            "required": ["type", "value"],
+            "properties": {
+                "type": {"type": "string", "enum": ["keyword", "unkeyword"]},
+                "value": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Match all child criteria.",
+            "required": ["and"],
+            "properties": {"and": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/searchCriteria"}}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Match either of exactly two child criteria.",
+            "required": ["or"],
+            "properties": {"or": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/searchCriteria"}}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "description": "Negate one child criterion.",
+            "required": ["not"],
+            "properties": {"not": {"$ref": "#/$defs/searchCriteria"}},
+            "additionalProperties": False,
+        },
+    ],
+}
+
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_folders": {"type": "object", "properties": {}, "additionalProperties": False},
     "search_emails": {
         "type": "object",
         "required": ["folder", "criteria"],
+        "additionalProperties": False,
+        "$defs": {"searchCriteria": _SEARCH_CRITERIA_SCHEMA},
         "properties": {
             "folder": {"type": "string"},
             "criteria": {
-                "type": "object",
-                "description": "Structured IMAP SEARCH expression. Use leaves like {'type':'text','value':'marker'}, {'type':'subject','value':'invoice'}, {'type':'since','value':'2026-05-15'}, {'type':'unseen'}, or logic nodes {'and':[...]} {'or':[left,right]} {'not':expr}. Dates are YYYY-MM-DD.",
-                "additionalProperties": True,
+                "$ref": "#/$defs/searchCriteria",
+                "description": _SEARCH_CRITERIA_SCHEMA["description"],
             },
             "limit": {"type": "integer", "default": 50},
         },

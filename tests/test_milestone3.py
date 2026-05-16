@@ -269,11 +269,36 @@ def test_search_emails_rejects_invalid_structured_criteria_before_imap(base_env,
 
 def test_search_emails_schema_documents_structured_criteria():
     schema = TOOL_SCHEMAS["search_emails"]
-    description = schema["properties"]["criteria"]["description"]
+    criteria = schema["properties"]["criteria"]
+    criteria_def = schema["$defs"]["searchCriteria"]
+    description = criteria["description"]
+    variants = criteria_def["anyOf"]
 
     assert schema["required"] == ["folder", "criteria"]
+    assert schema["additionalProperties"] is False
+    assert criteria == {"$ref": "#/$defs/searchCriteria", "description": description}
+    assert criteria_def.get("additionalProperties") is not True
     assert "Structured IMAP SEARCH expression" in description
-    assert "{'type':'text','value':'marker'}" in description
+    assert "exact marker searches" in description
+    assert "subject, body, and full message text" in description
+    assert "String values are safely quoted" in description
+    assert "{'type':'text','value':'MCP-SMOKE-...'}" in description
+
+    encoded = str(variants)
+    for marker in (
+        "'text'",
+        "'subject'",
+        "'since'",
+        "'unseen'",
+        "'header'",
+        "'uid'",
+        "'and'",
+        "'or'",
+        "'not'",
+    ):
+        assert marker in encoded
+
+    assert "'additionalProperties': True" not in encoded
 
 
 def test_invalid_input_and_not_found(base_env):

@@ -7,7 +7,7 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 - List my mail folders.
 - Show the 20 most recent messages in `INBOX`.
 - Show emails from today in `INBOX` using `search_emails` criteria like `{"and":[{"type":"since","value":"2026-05-13"},{"type":"before","value":"2026-05-14"}]}`, then summarize the senders and subjects.
-- Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches.
+- Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches. `text` is the intended full-message search type for exact markers or terms in subject/body; use `subject` only when intentionally narrowing to the Subject header.
 - Read the message with UID `<uid>` from `INBOX`, limiting the body to 4000 characters.
 - Show the sender identity this connector will use for outgoing mail.
 
@@ -15,7 +15,7 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 
 - Send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my IMAP/SMTP MCP connector.`
 - Create a folder named `MCP Test <unique-marker>`, then rename it to `MCP Test Renamed <unique-marker>`.
-- Send a test email to myself with subject `MCP owned message <unique-marker>`, search for that exact marker with `search_emails` criteria `{"type":"text","value":"<unique-marker>"}`, and only copy, move, mark read or unread, trash, or permanently delete messages that match that marker.
+- Send a test email to myself with subject `MCP owned message <unique-marker>`, search for that exact marker with the intended full-marker `search_emails` criteria `{"type":"text","value":"<unique-marker>"}`, and only copy, move, mark read or unread, trash, or permanently delete messages that match that marker.
 - Move the MCP-created message with UID `<uid>` from `INBOX` to `MCP Test Renamed <unique-marker>`, then copy it back to `INBOX`.
 - Mark only the MCP-created message with UID `<uid>` as read, then unread.
 - Move only the MCP-created message with UID `<uid>` to Trash. Permanently delete only that same MCP-created message if it is still identifiable by the unique marker.
@@ -30,7 +30,7 @@ Run a safe IMAP/SMTP MCP smoke test against my mailbox.
 
 Use a unique marker like MCP-SMOKE-<timestamp>-<random>. First get_sender_identity so you know the display name and outbound sender email, then list_folders and confirm the configured INBOX and Trash folder names. Create a folder named MCP Smoke <marker>, then rename_folder it to MCP Smoke Renamed <marker>.
 
-Send an email to my own outbound sender email with subject MCP Smoke <marker> and a short body containing the marker. Use search_emails in INBOX with criteria {"type":"text","value":"<marker>"} until the sent test message is visible, then list_emails in INBOX and read_email for only that matching UID.
+Send an email to my own outbound sender email with subject MCP Smoke <marker> and a short body containing the marker. Use search_emails in INBOX with the intended full-marker criteria {"type":"text","value":"<marker>"} until the sent test message is visible, then list_emails in INBOX and read_email for only that matching UID.
 
 Only operate on messages whose subject or body contains the marker. For the matching MCP-created message, copy_email it to MCP Smoke Renamed <marker>, mark_read_state it read and then unread, move_email the copied or matching MCP-created message back if needed, and move_to_trash only an MCP-created matching UID. If a matching MCP-created message is in Trash, delete_email_permanent only that matching UID.
 
