@@ -32,7 +32,25 @@ Set `MCP_PUBLIC_BASE_URL`, `OAUTH_ISSUER`, and `OAUTH_AUDIENCE` to the external 
 Minimal nginx location:
 
 ```nginx
+limit_req_zone $binary_remote_addr zone=mcp_oauth:10m rate=30r/m;
+
 location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+For public deployments, also add edge request/IP limits for OAuth endpoints. App-local OAuth caps prevent unbounded in-memory state growth, but they are not a substitute for proxy limits against repeated valid requests such as `GET /oauth/authorize`.
+
+Illustrative nginx OAuth limit:
+
+```nginx
+location ~ ^/oauth/(authorize|register|token)$ {
+    limit_req zone=mcp_oauth burst=20 nodelay;
     proxy_pass http://127.0.0.1:8000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -117,7 +135,7 @@ Restrict Dynamic Client Registration to known redirect destinations. For ChatGPT
 OAUTH_ALLOWED_REDIRECT_URI_PATTERNS=https://chatgpt\.com/connector/oauth/cb
 ```
 
-The server also rate-limits registration and authorize POST attempts locally, and bounds in-memory OAuth rate-limit and authorize-form CSRF state with `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`. Keep these app-local protections enabled, and use reverse-proxy request/IP limits for public deployments.
+The server also rate-limits registration and authorize POST attempts locally, and bounds in-memory OAuth rate-limit and authorize-form CSRF state with `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`. Keep these app-local protections enabled, and use reverse-proxy request/IP limits for public deployments on `GET /oauth/authorize`, `POST /oauth/authorize`, `POST /oauth/register`, and `POST /oauth/token`.
 
 During OAuth authorization, users also confirm the display name and outbound email address that the server will use for sent mail. Set `SMTP_FROM_DOMAIN=example.com` to let the form suggest `smtp_username@example.com` when the SMTP username is only a local part; usernames that already contain `@` are copied as-is. Users may edit the suggested outbound address before authorizing.
 

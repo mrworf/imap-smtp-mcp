@@ -59,6 +59,21 @@ def test_docs_explain_cookie_secret_usage() -> None:
         assert "in-flight authorization forms" in text
 
 
+def test_docs_describe_oauth_endpoint_proxy_rate_limits() -> None:
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
+
+    for text in (deployment, security):
+        assert "GET /oauth/authorize" in text
+        assert "POST /oauth/authorize" in text
+        assert "POST /oauth/register" in text
+        assert "POST /oauth/token" in text
+        assert "reverse-proxy request/IP limits" in text
+
+    assert "limit_req" in deployment
+    assert "OAUTH_AUTHORIZE_CSRF_MAX_TOKENS" in security
+
+
 def test_local_debug_docs_cover_shell_modes() -> None:
     local_debug_path = ROOT / "docs/local_debug.md"
     assert local_debug_path.exists()
