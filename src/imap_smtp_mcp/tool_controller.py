@@ -234,6 +234,75 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     },
 }
 
+OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "list_folders": {
+        "type": "object",
+        "required": ["folders"],
+        "additionalProperties": False,
+        "properties": {"folders": {"type": "array", "items": {"type": "string"}}},
+    },
+    "search_emails": {
+        "type": "object",
+        "required": ["uids"],
+        "additionalProperties": False,
+        "properties": {"uids": {"type": "array", "items": {"type": "string"}}},
+    },
+    "list_emails": {
+        "type": "object",
+        "required": ["emails"],
+        "additionalProperties": False,
+        "properties": {
+            "emails": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["uid", "subject", "from_address", "date"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "uid": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "from_address": {"type": "string"},
+                        "date": {"type": "string"},
+                    },
+                },
+            }
+        },
+    },
+    "read_email": {
+        "type": "object",
+        "required": ["uid", "subject", "from_address", "to", "date", "body_text", "truncated"],
+        "additionalProperties": False,
+        "properties": {
+            "uid": {"type": "string"},
+            "subject": {"type": "string"},
+            "from_address": {"type": "string"},
+            "to": {"type": "string"},
+            "date": {"type": "string"},
+            "body_text": {"type": "string"},
+            "truncated": {"type": "boolean"},
+        },
+    },
+    "get_sender_identity": {
+        "type": "object",
+        "required": ["sender_display_name", "sender_email"],
+        "additionalProperties": False,
+        "properties": {
+            "sender_display_name": {"type": "string"},
+            "sender_email": {"type": "string"},
+        },
+    },
+    "send_email": {"type": "object", "required": ["sent"], "additionalProperties": False, "properties": {"sent": {"type": "boolean"}}},
+    "mark_read_state": {"type": "object", "required": ["updated"], "additionalProperties": False, "properties": {"updated": {"type": "boolean"}}},
+    "move_email": {"type": "object", "required": ["moved"], "additionalProperties": False, "properties": {"moved": {"type": "boolean"}}},
+    "copy_email": {"type": "object", "required": ["copied"], "additionalProperties": False, "properties": {"copied": {"type": "boolean"}}},
+    "delete_email_permanent": {"type": "object", "required": ["deleted"], "additionalProperties": False, "properties": {"deleted": {"type": "boolean"}}},
+    "move_to_trash": {"type": "object", "required": ["trashed"], "additionalProperties": False, "properties": {"trashed": {"type": "boolean"}}},
+    "empty_trash": {"type": "object", "required": ["emptied"], "additionalProperties": False, "properties": {"emptied": {"type": "boolean"}}},
+    "create_folder": {"type": "object", "required": ["created"], "additionalProperties": False, "properties": {"created": {"type": "boolean"}}},
+    "rename_folder": {"type": "object", "required": ["renamed"], "additionalProperties": False, "properties": {"renamed": {"type": "boolean"}}},
+    "delete_folder": {"type": "object", "required": ["deleted"], "additionalProperties": False, "properties": {"deleted": {"type": "boolean"}}},
+}
+
 
 def _jsonify(value: Any) -> Any:
     if is_dataclass(value):
@@ -272,6 +341,7 @@ class MailToolController:
                     "name": name,
                     "description": _description_for(name),
                     "inputSchema": schema,
+                    "outputSchema": OUTPUT_SCHEMAS[name],
                     "annotations": _annotations_for(name),
                 }
             )
