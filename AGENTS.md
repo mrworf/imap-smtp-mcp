@@ -25,6 +25,9 @@ These instructions apply to the entire repository.
 - `tests/` for unit tests mirroring `src` paths.
 - `docs/` for operator docs, security notes, compatibility docs, and user-facing references.
 
+## MCP interface requirements
+- Any new API exposed via the MCP interface must define and include an explicit output schema before it is considered complete.
+
 ## Testing expectations
 - Every new feature requires positive and negative tests.
 - Completed changes require relevant tests passing locally.
