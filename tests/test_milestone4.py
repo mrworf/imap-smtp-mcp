@@ -5,10 +5,11 @@ import ssl
 
 import pytest
 
+from imap_smtp_mcp.attachments import AttachmentData
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, PermissionDisabledError
 from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_mailbox_name
-from imap_smtp_mcp.send_tools import SendEmailService
+from imap_smtp_mcp.send_tools import SendEmailService, parse_outbound_attachments
 from imap_smtp_mcp.smtp_adapter import SmtpAdapter, SmtpTlsError
 
 
@@ -280,3 +281,124 @@ def test_send_email_sets_reply_to_when_requested(config):
         reply_to_address="alice@example.com",
     )
     assert smtp_client.sent_message["Reply-To"] == "alice@example.com"
+
+
+def test_send_email_adds_allowed_attachments(config):
+    smtp_client = FakeSmtpClient()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
+        config,
+    )
+
+    service.send_email(
+        "smtp-u",
+        "smtp-p",
+        "imap-u",
+        "imap-p",
+        "alice@example.com",
+        ("bob@example.com",),
+        "Subject",
+        "Body",
+        attachments=(AttachmentData(filename="note.txt", content_type="text/plain", content=b"hello"),),
+    )
+
+    attachments = list(smtp_client.sent_message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "note.txt"
+    assert attachments[0].get_content_type() == "text/plain"
+    assert attachments[0].get_payload(decode=True) == b"hello"
+
+
+def test_send_email_rejects_too_many_attachments_before_smtp(config, monkeypatch):
+    monkeypatch.setenv("MCP_ATTACHMENT_MAX_COUNT", "1")
+    cfg = load_config()
+    smtp_client = FakeSmtpClient()
+    service = SendEmailService(
+        SmtpAdapter(cfg, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
+        cfg,
+    )
+
+    with pytest.raises(InvalidInputError, match="at most 1 attachments"):
+        service.send_email(
+            "smtp-u",
+            "smtp-p",
+            "imap-u",
+            "imap-p",
+            "alice@example.com",
+            ("bob@example.com",),
+            "Subject",
+            "Body",
+            attachments=(
+                AttachmentData(filename="a.txt", content_type="text/plain", content=b"a"),
+                AttachmentData(filename="b.txt", content_type="text/plain", content=b"b"),
+            ),
+        )
+
+    assert not smtp_client.sent
+
+
+def test_send_email_rejects_blocked_and_oversized_attachments_before_smtp(config, monkeypatch):
+    monkeypatch.setenv("MCP_ATTACHMENT_MAX_BYTES", "3")
+    cfg = load_config()
+    smtp_client = FakeSmtpClient()
+    service = SendEmailService(
+        SmtpAdapter(cfg, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
+        cfg,
+    )
+
+    with pytest.raises(InvalidInputError, match="blocked by MIME type"):
+        service.send_email(
+            "smtp-u",
+            "smtp-p",
+            "imap-u",
+            "imap-p",
+            "alice@example.com",
+            ("bob@example.com",),
+            "Subject",
+            "Body",
+            attachments=(AttachmentData(filename="page.txt", content_type="text/html", content=b"x"),),
+        )
+    with pytest.raises(InvalidInputError, match="attachment exceeds maximum size"):
+        service.send_email(
+            "smtp-u",
+            "smtp-p",
+            "imap-u",
+            "imap-p",
+            "alice@example.com",
+            ("bob@example.com",),
+            "Subject",
+            "Body",
+            attachments=(AttachmentData(filename="a.txt", content_type="text/plain", content=b"1234"),),
+        )
+
+    assert not smtp_client.sent
+
+
+def test_parse_outbound_attachments_rejects_zero_policy_and_invalid_base64(config, monkeypatch):
+    monkeypatch.setenv("MCP_ATTACHMENT_MAX_COUNT", "0")
+    cfg = load_config()
+
+    with pytest.raises(InvalidInputError, match="at most 0 attachments"):
+        parse_outbound_attachments(
+            [{"filename": "note.txt", "content_type": "text/plain", "content_base64": "aGVsbG8="}],
+            cfg,
+        )
+
+    monkeypatch.setenv("MCP_ATTACHMENT_MAX_COUNT", "10")
+    cfg = load_config()
+    with pytest.raises(InvalidInputError, match="invalid base64"):
+        parse_outbound_attachments(
+            [{"filename": "note.txt", "content_type": "text/plain", "content_base64": "not base64"}],
+            cfg,
+        )
+
+
+def test_parse_outbound_attachments_rejects_bad_filename(config):
+    with pytest.raises(InvalidInputError, match="path separators"):
+        parse_outbound_attachments(
+            [{"filename": "../note.txt", "content_type": "text/plain", "content_base64": "aGVsbG8="}],
+            config,
+        )

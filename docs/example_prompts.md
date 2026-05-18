@@ -17,6 +17,7 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 ## Common Send And Organize Prompts
 
 - Send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my IMAP/SMTP MCP connector.`
+- Send an email to `person@example.com` with subject `Files from MCP`, body `Attached are the requested files.`, and no more than the connector's advertised attachment limit. Do not attach HTML or JavaScript unless the tool definition says this deployment allows them.
 - Create a folder named `MCP Test <unique-marker>`, then rename it to `MCP Test Renamed <unique-marker>`.
 - Send a test email to myself with subject `MCP owned message <unique-marker>`, search for that exact marker with the intended full-marker `search_emails` criteria `{"type":"text","value":"<unique-marker>"}`, and only copy, move, mark read or unread, trash, or permanently delete messages that match that marker.
 - Move the MCP-created message with UID `<uid>` from `INBOX` to `MCP Test Renamed <unique-marker>`, then copy it back to `INBOX`.

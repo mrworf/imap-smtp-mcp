@@ -12,7 +12,7 @@ from .errors import AuthSessionError, BackendUnavailableError, InvalidInputError
 from .imap_adapter import ImapAdapter
 from .oauth import MailCredentials
 from .read_tools import ReadOnlyMailboxService
-from .send_tools import SendEmailService
+from .send_tools import SendEmailService, parse_outbound_attachments
 from .smtp_adapter import SmtpAdapter
 from .write_tools import WriteMailboxService
 
@@ -200,6 +200,20 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "to_addresses": {"type": "array", "items": {"type": "string"}},
             "subject": {"type": "string"},
             "body_text": {"type": "string"},
+            "attachments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["filename", "content_type", "content_base64"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "filename": {"type": "string"},
+                        "content_type": {"type": "string"},
+                        "content_base64": {"type": "string"},
+                    },
+                },
+                "default": [],
+            },
             "append_to_sent": {"type": "boolean", "default": True},
         },
     },
@@ -428,6 +442,7 @@ class MailToolController:
                 raise AuthSessionError("Sender identity is missing; reauthorize before sending email")
             reply_to_override = "reply_to" in args
             self._audit_sender_override(args, c, request_id=request_id, subject=subject)
+            attachments = parse_outbound_attachments(args.get("attachments", []), self.config)
             self.send_service.send_email(
                 c.smtp_username,
                 c.smtp_password,
@@ -440,6 +455,7 @@ class MailToolController:
                 from_display_name=c.sender_display_name,
                 reply_to_address=c.sender_email if reply_to_override else None,
                 append_to_sent=bool(args.get("append_to_sent", True)),
+                attachments=attachments,
             )
             return {"sent": True}
         if name == "mark_read_state":
@@ -529,14 +545,23 @@ def _schema_for(name: str, schema: dict[str, Any], config: AppConfig) -> dict[st
     out = deepcopy(schema)
     if name == "get_email_attachment":
         out["description"] = _attachment_policy_text(config)
+    if name == "send_email":
+        policy = config.attachment_policy
+        out["properties"]["attachments"]["description"] = f"Optional base64 attachments. Maximum {policy.max_count} attachments, each at most {policy.max_bytes} decoded bytes. { _attachment_blocklist_text(config) } If any attachment is invalid or blocked, no email is sent."
+        out["properties"]["attachments"]["maxItems"] = policy.max_count
     return out
+
+
+def _attachment_blocklist_text(config: AppConfig) -> str:
+    policy = config.attachment_policy
+    blocked_mimes = ", ".join(policy.blocked_mime_types) if policy.blocked_mime_types else "none"
+    blocked_extensions = ", ".join(policy.blocked_extensions) if policy.blocked_extensions else "none"
+    return f"Blocked MIME types: {blocked_mimes}. Blocked extensions: {blocked_extensions}."
 
 
 def _attachment_policy_text(config: AppConfig) -> str:
     policy = config.attachment_policy
-    blocked_mimes = ", ".join(policy.blocked_mime_types) if policy.blocked_mime_types else "none"
-    blocked_extensions = ", ".join(policy.blocked_extensions) if policy.blocked_extensions else "none"
-    return f"Attachment retrieval returns base64 file bytes for one allowed attachment. Maximum decoded size is {policy.max_bytes} bytes. Blocked MIME types: {blocked_mimes}. Blocked extensions: {blocked_extensions}."
+    return f"Attachment retrieval returns base64 file bytes for one allowed attachment. Maximum decoded size is {policy.max_bytes} bytes. {_attachment_blocklist_text(config)}"
 
 
 def _description_for(name: str, config: AppConfig | None = None) -> str:
@@ -560,6 +585,9 @@ def _description_for(name: str, config: AppConfig | None = None) -> str:
     }
     if name == "get_email_attachment" and config is not None:
         return f"{descriptions[name]} {_attachment_policy_text(config)}"
+    if name == "send_email" and config is not None:
+        policy = config.attachment_policy
+        return f"{descriptions[name]} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
     return descriptions[name]
 
 

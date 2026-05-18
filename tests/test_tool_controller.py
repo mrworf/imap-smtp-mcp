@@ -5,8 +5,9 @@ import json
 import pytest
 
 from imap_smtp_mcp.audit import AuditLogger, _audit_filename
+from imap_smtp_mcp.attachments import AttachmentData
 from imap_smtp_mcp.config import load_config
-from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, PermissionDisabledError
+from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, InvalidInputError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
 from imap_smtp_mcp.tool_controller import READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
@@ -101,6 +102,7 @@ class FakeSendService:
         from_display_name: str | None = None,
         reply_to_address: str | None = None,
         append_to_sent: bool = True,
+        attachments: tuple[AttachmentData, ...] = (),
     ) -> None:
         self.calls.append(
             {
@@ -115,6 +117,7 @@ class FakeSendService:
                 "from_display_name": from_display_name,
                 "reply_to_address": reply_to_address,
                 "append_to_sent": append_to_sent,
+                "attachments": attachments,
             }
         )
 
@@ -137,6 +140,7 @@ def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:
     assert "from_address" not in schema["properties"]
     assert "from_display_name" not in schema["properties"]
     assert "reply_to" not in schema["properties"]
+    assert "attachments" in schema["properties"]
 
 
 def test_sender_identity_tool_schema_scope_and_annotations() -> None:
@@ -158,6 +162,17 @@ def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_p
     assert "base64" in attachment_tool["description"]
     assert "1048576 bytes" in attachment_tool["description"]
     assert "text/html" in attachment_tool["description"]
+
+
+def test_send_tool_schema_documents_attachment_limits(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    send_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_email")
+
+    assert "10 attachments" in send_tool["description"]
+    assert "1048576 decoded bytes" in send_tool["description"]
+    assert "base64" in send_tool["inputSchema"]["properties"]["attachments"]["description"]
+    assert send_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
 
 
 def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_path) -> None:
@@ -261,6 +276,7 @@ def test_send_tool_uses_session_sender_and_audits_spoof_attempt(controller_env, 
             "from_display_name": "Test Sender",
             "reply_to_address": "sender@example.com",
             "append_to_sent": True,
+            "attachments": (),
         }
     ]
     log_lines = (tmp_path / _audit_filename("subject")).read_text(encoding="utf-8").splitlines()
@@ -306,6 +322,53 @@ def test_send_tool_action_flag_blocks_before_sender_identity(controller_env, mon
             request_id="send-3",
             subject="subject",
         )
+    assert fake_send.calls == []
+
+
+def test_send_tool_passes_validated_attachments(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_send = FakeSendService()
+    controller.send_service = fake_send
+
+    result = controller.call_tool(
+        "send_email",
+        {
+            "to_addresses": ["bob@example.com"],
+            "subject": "Subject",
+            "body_text": "Body",
+            "attachments": [{"filename": "note.txt", "content_type": "Text/Plain", "content_base64": "aGVsbG8="}],
+        },
+        _credentials(),
+        request_id="send-attachments",
+        subject="subject",
+    )
+
+    assert result == {"sent": True}
+    attachments = fake_send.calls[0]["attachments"]
+    assert attachments == (AttachmentData(filename="note.txt", content_type="text/plain", content=b"hello"),)
+
+
+def test_send_tool_rejects_attachment_before_send_service(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_send = FakeSendService()
+    controller.send_service = fake_send
+
+    with pytest.raises(InvalidInputError, match="blocked by extension"):
+        controller.call_tool(
+            "send_email",
+            {
+                "to_addresses": ["bob@example.com"],
+                "subject": "Subject",
+                "body_text": "Body",
+                "attachments": [{"filename": "script.js", "content_type": "text/plain", "content_base64": "aGVsbG8="}],
+            },
+            _credentials(),
+            request_id="send-attachments-blocked",
+            subject="subject",
+        )
+
     assert fake_send.calls == []
 
 

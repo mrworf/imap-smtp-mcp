@@ -3,7 +3,15 @@ from __future__ import annotations
 import re
 from email.headerregistry import Address
 from email.message import EmailMessage
+from typing import Any
 
+from .attachments import (
+    AttachmentData,
+    decode_attachment_base64,
+    normalize_content_type,
+    validate_attachment_allowed,
+    validate_attachment_filename,
+)
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, PermissionDisabledError
@@ -38,6 +46,7 @@ class SendEmailService:
         from_display_name: str | None = None,
         reply_to_address: str | None = None,
         append_to_sent: bool = True,
+        attachments: tuple[AttachmentData, ...] = (),
     ) -> None:
         self._enforce_action("send_email")
         if not EMAIL_PATTERN.match(from_address):
@@ -49,6 +58,10 @@ class SendEmailService:
         for to_addr in to_addresses:
             if not EMAIL_PATTERN.match(to_addr):
                 raise InvalidInputError(f"invalid recipient address: {to_addr}")
+        if len(attachments) > self._config.attachment_policy.max_count:
+            raise InvalidInputError(f"at most {self._config.attachment_policy.max_count} attachments are allowed")
+        for attachment in attachments:
+            validate_attachment_allowed(attachment.filename, attachment.content_type, len(attachment.content), self._config.attachment_policy)
 
         msg = EmailMessage()
         if from_display_name:
@@ -60,6 +73,9 @@ class SendEmailService:
         msg["To"] = ", ".join(to_addresses)
         msg["Subject"] = subject
         msg.set_content(body_text)
+        for attachment in attachments:
+            maintype, subtype = attachment.content_type.split("/", 1)
+            msg.add_attachment(attachment.content, maintype=maintype, subtype=subtype, filename=attachment.filename)
 
         try:
             smtp_client = self._smtp_adapter.connect(smtp_username, smtp_password)
@@ -75,3 +91,29 @@ class SendEmailService:
                 imap_client.logout()
             except Exception as exc:
                 raise BackendUnavailableError("Email sent but failed to append to sent folder") from exc
+
+
+def parse_outbound_attachments(raw_attachments: Any, config: AppConfig) -> tuple[AttachmentData, ...]:
+    if raw_attachments is None:
+        return ()
+    if not isinstance(raw_attachments, list):
+        raise InvalidInputError("attachments must be an array")
+    policy = config.attachment_policy
+    if len(raw_attachments) > policy.max_count:
+        raise InvalidInputError(f"at most {policy.max_count} attachments are allowed")
+    out: list[AttachmentData] = []
+    for index, raw in enumerate(raw_attachments):
+        if not isinstance(raw, dict):
+            raise InvalidInputError(f"attachment {index} must be an object")
+        filename_raw = raw.get("filename")
+        if not isinstance(filename_raw, str):
+            raise InvalidInputError("attachment filename must be a string")
+        content_type_raw = raw.get("content_type")
+        if not isinstance(content_type_raw, str):
+            raise InvalidInputError("attachment content_type is invalid")
+        filename = validate_attachment_filename(filename_raw)
+        content_type = normalize_content_type(content_type_raw)
+        content = decode_attachment_base64(raw.get("content_base64"))
+        validate_attachment_allowed(filename, content_type, len(content), policy)
+        out.append(AttachmentData(filename=filename, content_type=content_type, content=content))
+    return tuple(out)
