@@ -13,6 +13,7 @@ from typing import Any
 REDACTED = "[REDACTED]"
 SYSTEM_LOG = "system"
 SECRET_FIELD_MARKERS = ("PASSWORD", "TOKEN", "SECRET", "KEY", "AUTHORIZATION", "AUTH_HEADER")
+BYTE_FIELD_NAMES = ("CONTENT_BASE64", "ATTACHMENT_BASE64")
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,8 @@ class AuditLogger:
 
 def _sanitize(value: Any, *, key_hint: str = "") -> Any:
     if key_hint and any(marker in key_hint.upper() for marker in SECRET_FIELD_MARKERS):
+        return REDACTED
+    if key_hint and key_hint.upper() in BYTE_FIELD_NAMES:
         return REDACTED
     if isinstance(value, dict):
         return {str(key): _sanitize(item, key_hint=str(key)) for key, item in value.items()}

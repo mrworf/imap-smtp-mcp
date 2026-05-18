@@ -116,7 +116,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         payload: dict[str, Any] = {}
         try:
             self.server.rate_limiter.check_register(self.client_address[0])
-            payload = self._read_json()
+            payload = self._read_json(MAX_JSON_BODY_BYTES)
             response = self.server.oauth_service.register_client(payload)
             self._audit_system("oauth_register", True, metadata=_register_audit_metadata(payload))
             self._send_json(response, status=HTTPStatus.CREATED)
@@ -199,7 +199,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_mcp_jsonrpc(self) -> None:
         try:
-            payload = self._read_json()
+            payload = self._read_json(self.server.config.max_json_body_bytes)
         except RequestBodyError as exc:
             self._send_json(_jsonrpc_error(None, -32600, exc.message), status=exc.status)
             return
@@ -256,8 +256,8 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": exc.error, "error_description": exc.description}).encode("utf-8"))
             return None
 
-    def _read_json(self) -> dict[str, Any]:
-        length = self._content_length(MAX_JSON_BODY_BYTES)
+    def _read_json(self, max_bytes: int) -> dict[str, Any]:
+        length = self._content_length(max_bytes)
         raw = self.rfile.read(length)
         payload = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(payload, dict):

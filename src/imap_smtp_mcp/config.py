@@ -7,6 +7,13 @@ from pathlib import Path
 import re
 from urllib.parse import urlparse
 
+from .attachments import (
+    DEFAULT_BLOCKED_EXTENSIONS,
+    DEFAULT_BLOCKED_MIME_TYPES,
+    AttachmentPolicy,
+    compute_json_body_limit,
+)
+
 
 class ConfigError(ValueError):
     pass
@@ -73,6 +80,8 @@ class AppConfig:
     audit_log_dir: str
     debug_unredacted_logs: bool = False
     app_data_dir: str = "/var/lib/imap-smtp-mcp"
+    attachment_policy: AttachmentPolicy = AttachmentPolicy()
+    max_json_body_bytes: int = 1_048_576
     oauth: OAuthConfig = OAuthConfig()
     server: ServerConfig = ServerConfig()
 
@@ -145,6 +154,33 @@ def _parse_patterns(name: str) -> tuple[str, ...]:
         except re.error as exc:
             raise ConfigError(f"Invalid regex in {name}: {pattern}") from exc
     return patterns
+
+
+def _parse_csv_list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return tuple(item.strip() for item in raw.replace("\n", ",").split(",") if item.strip())
+
+
+def _parse_blocked_mime_types(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    values = tuple(item.split(";", 1)[0].strip().lower() for item in _parse_csv_list(name, default))
+    for value in values:
+        if not value or "/" not in value or any(ch.isspace() for ch in value):
+            raise ConfigError(f"Invalid MIME type in {name}: {value}")
+    return values
+
+
+def _parse_blocked_extensions(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    extensions: list[str] = []
+    for raw in _parse_csv_list(name, default):
+        value = raw.strip().lower()
+        if not value.startswith("."):
+            value = f".{value}"
+        if value == "." or "/" in value or "\\" in value or any(ch.isspace() for ch in value):
+            raise ConfigError(f"Invalid extension in {name}: {raw}")
+        extensions.append(value)
+    return tuple(extensions)
 
 
 def _parse_optional_domain(name: str) -> str | None:
@@ -265,6 +301,26 @@ def _load_server_config() -> ServerConfig:
     )
 
 
+def _load_attachment_policy() -> tuple[AttachmentPolicy, int]:
+    max_count = _parse_int("MCP_ATTACHMENT_MAX_COUNT", 10)
+    if max_count < 0:
+        raise ConfigError("MCP_ATTACHMENT_MAX_COUNT must be >= 0")
+    max_bytes = _parse_int("MCP_ATTACHMENT_MAX_BYTES", 1_048_576)
+    if max_bytes <= 0:
+        raise ConfigError("MCP_ATTACHMENT_MAX_BYTES must be > 0")
+    policy = AttachmentPolicy(
+        max_count=max_count,
+        max_bytes=max_bytes,
+        blocked_mime_types=_parse_blocked_mime_types("MCP_ATTACHMENT_BLOCKED_MIME_TYPES", DEFAULT_BLOCKED_MIME_TYPES),
+        blocked_extensions=_parse_blocked_extensions("MCP_ATTACHMENT_BLOCKED_EXTENSIONS", DEFAULT_BLOCKED_EXTENSIONS),
+    )
+    try:
+        max_json_body_bytes = compute_json_body_limit(policy)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    return policy, max_json_body_bytes
+
+
 def load_config() -> AppConfig:
     imap = EndpointConfig(_require("IMAP_HOST"), _parse_port("IMAP_PORT"), _parse_mode("IMAP_MODE"))
     smtp = EndpointConfig(_require("SMTP_HOST"), _parse_port("SMTP_PORT"), _parse_mode("SMTP_MODE"))
@@ -297,6 +353,7 @@ def load_config() -> AppConfig:
         "rename_folder": _parse_bool("ACTION_RENAME_FOLDER", False),
         "delete_folder": _parse_bool("ACTION_DELETE_FOLDER", False),
     }
+    attachment_policy, max_json_body_bytes = _load_attachment_policy()
 
     return AppConfig(
         imap=imap,
@@ -312,6 +369,8 @@ def load_config() -> AppConfig:
         audit_log_dir=_require("AUDIT_LOG_DIR"),
         debug_unredacted_logs=_parse_bool("MCP_DEBUG_UNREDACTED_LOGS", False),
         app_data_dir=app_data_dir,
+        attachment_policy=attachment_policy,
+        max_json_body_bytes=max_json_body_bytes,
         oauth=_load_oauth_config(app_data_dir),
         server=_load_server_config(),
     )

@@ -27,6 +27,12 @@
 - Enable least-privilege actions per environment.
 - Validate effective action flags during startup review.
 
+## Attachment hardening
+- Keep attachment limits small enough for your deployment. `MCP_ATTACHMENT_MAX_COUNT` defaults to `10`, and `MCP_ATTACHMENT_MAX_BYTES` defaults to `1048576` decoded bytes per attachment.
+- HTML and JavaScript attachments are blocked by default using MIME type and filename-extension policy. Only unblock them with explicit operator review.
+- Use `MCP_ATTACHMENT_MAX_COUNT=0` when outbound attachments are not required.
+- Attachment bytes are transported as base64 in MCP JSON. Audit logs redact `content_base64` fields even when debug logging is enabled.
+
 ## Audit logging and retention
 - Mount audit log directory to durable storage.
 - Per-user audit filenames are derived from a hash of the MCP subject; the original subject remains inside each JSON audit line as `mcp_user`.

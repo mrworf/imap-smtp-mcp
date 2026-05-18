@@ -317,6 +317,7 @@ def test_debug_tool_audit_logs_sanitized_arguments_results_and_traceback(control
             "subject": "Subject",
             "body_text": "Debug body",
             "smtp_password": "bad-secret",
+            "attachments": [{"filename": "note.txt", "content_type": "text/plain", "content_base64": "c2VjcmV0"}],
         },
         _credentials(),
         request_id="send-debug",
@@ -328,5 +329,6 @@ def test_debug_tool_audit_logs_sanitized_arguments_results_and_traceback(control
     encoded = json.dumps(payload)
     assert payload["arguments"]["body_text"] == "Debug body"
     assert payload["arguments"]["smtp_password"] == "[REDACTED]"
+    assert payload["arguments"]["attachments"][0]["content_base64"] == "[REDACTED]"
     assert payload["result"] == {"sent": True}
     assert "bad-secret" not in encoded

@@ -56,6 +56,13 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `SMTP_FROM_DOMAIN`: optional bare domain used by the OAuth form to suggest an outbound sender email from an SMTP username local part.
 - `SMTP_TIMEOUT_SECONDS`: SMTP network timeout. Default: `30`.
 
+## Attachments
+
+- `MCP_ATTACHMENT_MAX_COUNT`: maximum attachments accepted by `send_email`. Default: `10`; set `0` to disable outbound attachments.
+- `MCP_ATTACHMENT_MAX_BYTES`: maximum decoded bytes per attachment for sending or retrieval. Default: `1048576`.
+- `MCP_ATTACHMENT_BLOCKED_MIME_TYPES`: comma- or newline-separated MIME types blocked for sending and retrieval. Default blocks HTML and JavaScript MIME types. Set to an empty value to unblock all MIME types.
+- `MCP_ATTACHMENT_BLOCKED_EXTENSIONS`: comma- or newline-separated filename extensions blocked for sending and retrieval. Default blocks `.html`, `.htm`, `.js`, and `.mjs`. Set to an empty value to unblock all extensions.
+
 ## Action Flags
 
 Action flags enable or disable tool families before any adapter/network call. Read/list/send actions default to enabled, while mailbox mutation and folder lifecycle actions default to disabled unless the operator explicitly sets the corresponding flag to `true`.
