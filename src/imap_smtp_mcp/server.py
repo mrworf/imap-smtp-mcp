@@ -134,11 +134,11 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         query = _single_value_query(raw_query)
         try:
             client = self.server.oauth_service.validate_authorize_request(query)
+            csrf_token = secrets.token_urlsafe(32)
+            self.server.authorize_csrf_store.issue(raw_query, csrf_token)
         except OAuthError as exc:
-            self._send_oauth_error(exc, status=HTTPStatus.BAD_REQUEST)
+            self._send_oauth_error(exc, status=_oauth_error_status(exc))
             return
-        csrf_token = secrets.token_urlsafe(32)
-        self.server.authorize_csrf_store.issue(raw_query, csrf_token)
         cookie_value = _sign_authorize_cookie(self.server.config, csrf_token, raw_query)
         self._send_html(
             _login_form(

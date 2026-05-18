@@ -12,9 +12,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 
-from imap_smtp_mcp.config import load_config
-from imap_smtp_mcp.oauth import CredentialVault, OAuthService
-from imap_smtp_mcp.server import AUTHORIZE_CSRF_COOKIE, MAX_FORM_BODY_BYTES, MAX_JSON_BODY_BYTES, MCPHTTPServer, MCPRequestHandler, StartupError, build_server
+from imap_smtp_mcp.config import ConfigError, load_config
+from imap_smtp_mcp.oauth import CredentialVault, OAuthError, OAuthService
+from imap_smtp_mcp.server import AUTHORIZE_CSRF_COOKIE, MAX_FORM_BODY_BYTES, MAX_JSON_BODY_BYTES, AuthorizeCsrfStore, MCPHTTPServer, MCPRequestHandler, OAuthRateLimiter, StartupError, build_server
 from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 
 
@@ -131,6 +131,64 @@ def _authorize_query(client_id: str, *, scope: str = "mail:read mail:send mail:w
     )
 
 
+def test_oauth_state_cap_config_validation(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_RATE_LIMIT_MAX_BUCKETS", "123")
+    monkeypatch.setenv("OAUTH_AUTHORIZE_CSRF_MAX_TOKENS", "456")
+    config = load_config()
+
+    assert config.oauth.rate_limit_max_buckets == 123
+    assert config.oauth.authorize_csrf_max_tokens == 456
+
+    monkeypatch.setenv("OAUTH_RATE_LIMIT_MAX_BUCKETS", "0")
+    with pytest.raises(ConfigError, match="OAUTH_RATE_LIMIT_MAX_BUCKETS must be > 0"):
+        load_config()
+
+    monkeypatch.setenv("OAUTH_RATE_LIMIT_MAX_BUCKETS", "123")
+    monkeypatch.setenv("OAUTH_AUTHORIZE_CSRF_MAX_TOKENS", "0")
+    with pytest.raises(ConfigError, match="OAUTH_AUTHORIZE_CSRF_MAX_TOKENS must be > 0"):
+        load_config()
+
+
+def test_rate_limiter_sweeps_expired_buckets(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS", "1")
+    monkeypatch.setenv("OAUTH_RATE_LIMIT_MAX_BUCKETS", "1")
+    now = 100.0
+    monkeypatch.setattr("imap_smtp_mcp.server.time.monotonic", lambda: now)
+    limiter = OAuthRateLimiter(load_config())
+
+    limiter.check_register("198.51.100.1")
+    now = 102.0
+    limiter.check_register("198.51.100.2")
+
+
+def test_rate_limiter_rejects_when_bucket_cap_is_full(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_RATE_LIMIT_MAX_BUCKETS", "1")
+    limiter = OAuthRateLimiter(load_config())
+
+    limiter.check_register("198.51.100.1")
+    with pytest.raises(OAuthError, match="Too many OAuth attempts"):
+        limiter.check_register("198.51.100.2")
+
+
+def test_authorize_csrf_store_sweeps_expired_tokens(monkeypatch):
+    now = 100.0
+    monkeypatch.setattr("imap_smtp_mcp.server.time.monotonic", lambda: now)
+    store = AuthorizeCsrfStore(ttl_seconds=1, max_tokens=1)
+
+    store.issue("client_id=one", "token-1")
+    now = 102.0
+    store.issue("client_id=two", "token-2")
+    store.consume("client_id=two", "token-2")
+
+
+def test_authorize_csrf_store_rejects_when_token_cap_is_full():
+    store = AuthorizeCsrfStore(ttl_seconds=300, max_tokens=1)
+
+    store.issue("client_id=one", "token-1")
+    with pytest.raises(OAuthError, match="Too many OAuth authorization requests"):
+        store.issue("client_id=two", "token-2")
+
+
 def _token(base_url: str) -> str:
     status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
     assert status == 201
@@ -199,6 +257,30 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     assert _csrf_token_from_html(html)
     assert 'name="sender_display_name"' in html
     assert 'name="sender_email"' in html
+
+
+def test_authorize_get_returns_slow_down_when_csrf_store_is_full(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_AUTHORIZE_CSRF_MAX_TOKENS", "1")
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda *_: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+        client_id = json.loads(raw)["client_id"]
+        query = _authorize_query(client_id)
+
+        assert _request("GET", f"{base_url}/oauth/authorize?{query}")[0] == 200
+        status, _, raw = _request("GET", f"{base_url}/oauth/authorize?{query}")
+
+        assert status == 429
+        assert json.loads(raw)["error"] == "slow_down"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_authorize_form_identifies_app_and_groups_credentials(http_server):
