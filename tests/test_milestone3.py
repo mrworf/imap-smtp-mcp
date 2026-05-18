@@ -16,6 +16,44 @@ class FakeMailboxClient:
         self.messages = {
             "1": self._build("Hello", "a@example.com", "b@example.com", "body one"),
             "2": self._build_html("Html", "c@example.com", "d@example.com", "<p>Hello <b>world</b></p>"),
+            "3": self._build_html(
+                "Noisy Html",
+                "noise@example.com",
+                "d@example.com",
+                """
+                <html>
+                  <head>
+                    <title>hidden title</title>
+                    <style>.secret { color: red; }</style>
+                    <script>window.alert("nope");</script>
+                    <link href="tracker.css">
+                    <meta name="tracking" content="hidden">
+                  </head>
+                  <body>
+                    <p>Hello <strong>visible</strong> text</p>
+                    <div>Second line<script>console.log("hidden")</script></div>
+                    <template>template tracking text</template>
+                    <noscript>noscript fallback tracking text</noscript>
+                    <svg><text>svg tracking text</text></svg>
+                    <canvas>canvas tracking text</canvas>
+                    <iframe>iframe tracking text</iframe>
+                  </body>
+                </html>
+                """,
+            ),
+            "4": self._build_multipart_alternative(
+                "Multipart",
+                "plain@example.com",
+                "d@example.com",
+                "plain body wins",
+                "<html><body><p>HTML fallback</p><script>console.log('hidden')</script></body></html>",
+            ),
+            "5": self._build_html(
+                "Headings",
+                "headings@example.com",
+                "d@example.com",
+                "<h1>Main</h1><p>Intro</p><h3>Details</h3><h6>Fine print</h6>",
+            ),
         }
 
     def _build(self, subject, sender, to, body):
@@ -34,6 +72,16 @@ class FakeMailboxClient:
         msg["To"] = to
         msg["Date"] = "Thu, 01 Jan 1970 00:00:00 +0000"
         msg.set_content(html, subtype="html")
+        return msg.as_bytes()
+
+    def _build_multipart_alternative(self, subject, sender, to, text, html):
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = to
+        msg["Date"] = "Thu, 01 Jan 1970 00:00:00 +0000"
+        msg.set_content(text)
+        msg.add_alternative(html, subtype="html")
         return msg.as_bytes()
 
     def login(self, user, password):
@@ -133,6 +181,51 @@ def test_readonly_tools_positive_flows(base_env):
 
     read = service.read_email("u", "p", "INBOX", "2")
     assert "Hello **world**" in read.body_text
+
+
+def test_read_email_strips_non_visible_html_content(base_env):
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "3")
+
+    assert "Hello **visible** text" in read.body_text
+    assert "Second line" in read.body_text
+    for hidden in (
+        ".secret",
+        "color: red",
+        "window.alert",
+        "console.log",
+        "hidden title",
+        "template tracking text",
+        "noscript fallback tracking text",
+        "svg tracking text",
+        "canvas tracking text",
+        "iframe tracking text",
+        "<script",
+        "<style",
+    ):
+        assert hidden not in read.body_text
+
+
+def test_read_email_prefers_plain_text_over_html_fallback(base_env):
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "4")
+
+    assert read.body_text == "plain body wins"
+    assert "HTML fallback" not in read.body_text
+    assert "console.log" not in read.body_text
+
+
+def test_read_email_converts_html_headings_to_markdown(base_env):
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "5")
+
+    assert read.body_text == "# Main\n\nIntro\n\n### Details\n\n###### Fine print"
 
 
 def test_search_emails_uses_structured_text_criteria(base_env):

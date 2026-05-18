@@ -223,31 +223,81 @@ def _extract_plain_text(msg: Message) -> str:
     return text.strip()
 
 
+_HTML_IGNORED_CONTAINER_TAGS = {
+    "canvas",
+    "head",
+    "iframe",
+    "noscript",
+    "script",
+    "style",
+    "svg",
+    "template",
+    "title",
+}
+_HTML_IGNORED_VOID_TAGS = {"link", "meta"}
+_HTML_HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+
+
 class _SimpleMarkdownHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.parts: list[str] = []
+        self._ignored_depth = 0
 
     def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in _HTML_IGNORED_CONTAINER_TAGS:
+            self._ignored_depth += 1
+            return
+        if self._ignored_depth or tag in _HTML_IGNORED_VOID_TAGS:
+            return
+        if tag in _HTML_HEADING_TAGS:
+            self.parts.append(f"\n{'#' * int(tag[1])} ")
+            return
         if tag in {"p", "br", "div"}:
             self.parts.append("\n")
         if tag in {"b", "strong"}:
             self.parts.append("**")
 
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        if self._ignored_depth or tag in _HTML_IGNORED_CONTAINER_TAGS or tag in _HTML_IGNORED_VOID_TAGS:
+            return
+        if tag == "br":
+            self.parts.append("\n")
+
     def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in _HTML_IGNORED_CONTAINER_TAGS:
+            if self._ignored_depth:
+                self._ignored_depth -= 1
+            return
+        if self._ignored_depth:
+            return
+        if tag in _HTML_HEADING_TAGS:
+            self.parts.append("\n")
+            return
         if tag in {"b", "strong"}:
             self.parts.append("**")
         if tag in {"p", "div"}:
             self.parts.append("\n")
 
     def handle_data(self, data):
+        if self._ignored_depth:
+            return
         self.parts.append(data)
 
 
 def _html_to_markdown(value: str) -> str:
     parser = _SimpleMarkdownHTMLParser()
     parser.feed(value)
-    return "".join(parser.parts)
+    return _normalize_html_text("".join(parser.parts))
+
+
+def _normalize_html_text(value: str) -> str:
+    normalized = re.sub(r"[ \t\f\v]+", " ", value)
+    normalized = re.sub(r" *\n *", "\n", normalized)
+    return re.sub(r"\n{3,}", "\n\n", normalized)
 
 
 class ReadOnlyMailboxService:

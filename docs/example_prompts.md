@@ -11,6 +11,8 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 - Read the message with UID `<uid>` from `INBOX`, limiting the body to 4000 characters.
 - Show the sender identity this connector will use for outgoing mail.
 
+`read_email` returns plain readable body text. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned.
+
 ## Common Send And Organize Prompts
 
 - Send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my IMAP/SMTP MCP connector.`
