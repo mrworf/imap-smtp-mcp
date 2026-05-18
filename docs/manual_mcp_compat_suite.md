@@ -27,6 +27,7 @@ It verifies:
 - `search_emails`
 - `list_emails`
 - `read_email`
+- `get_email_attachment` when a matching message exposes an allowed attachment
 - `create_folder`
 - `rename_folder`
 - `copy_email`

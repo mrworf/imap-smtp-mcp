@@ -2,6 +2,7 @@ from email.message import EmailMessage
 
 import pytest
 
+from imap_smtp_mcp.attachments import encode_attachment_base64
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
 from imap_smtp_mcp.imap_adapter import ImapAdapter, encode_imap_quoted_string, encode_mailbox_name
@@ -54,6 +55,8 @@ class FakeMailboxClient:
                 "d@example.com",
                 "<h1>Main</h1><p>Intro</p><h3>Details</h3><h6>Fine print</h6>",
             ),
+            "6": self._build_with_attachments(),
+            "7": self._build_with_oversized_attachment(),
         }
 
     def _build(self, subject, sender, to, body):
@@ -82,6 +85,28 @@ class FakeMailboxClient:
         msg["Date"] = "Thu, 01 Jan 1970 00:00:00 +0000"
         msg.set_content(text)
         msg.add_alternative(html, subtype="html")
+        return msg.as_bytes()
+
+    def _build_with_attachments(self):
+        msg = EmailMessage()
+        msg["Subject"] = "Attachments"
+        msg["From"] = "files@example.com"
+        msg["To"] = "d@example.com"
+        msg["Date"] = "Thu, 01 Jan 1970 00:00:00 +0000"
+        msg.set_content("body with files")
+        msg.add_attachment(b"hello attachment", maintype="text", subtype="plain", filename="note.txt")
+        msg.add_attachment(b"<script>bad()</script>", maintype="text", subtype="html", filename="page.html")
+        msg.add_attachment(b"alert(1)", maintype="application", subtype="octet-stream", filename="SCRIPT.JS")
+        return msg.as_bytes()
+
+    def _build_with_oversized_attachment(self):
+        msg = EmailMessage()
+        msg["Subject"] = "Big"
+        msg["From"] = "files@example.com"
+        msg["To"] = "d@example.com"
+        msg["Date"] = "Thu, 01 Jan 1970 00:00:00 +0000"
+        msg.set_content("body with big file")
+        msg.add_attachment(b"x" * 20, maintype="text", subtype="plain", filename="big.txt")
         return msg.as_bytes()
 
     def login(self, user, password):
@@ -436,12 +461,72 @@ def test_read_email_safe_truncation(base_env):
     assert read.body_text == "body"
 
 
+def test_read_email_lists_attachment_metadata_and_block_reasons(base_env):
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "6")
+
+    assert read.body_text == "body with files"
+    assert len(read.attachments) == 3
+    allowed = read.attachments[0]
+    assert allowed.attachment_id == "part-2"
+    assert allowed.filename == "note.txt"
+    assert allowed.content_type == "text/plain"
+    assert allowed.size_bytes == len(b"hello attachment")
+    assert allowed.retrievable is True
+    assert allowed.blocked_reason is None
+    assert read.attachments[1].blocked_reason == "blocked_mime_type"
+    assert read.attachments[2].blocked_reason == "blocked_extension"
+
+
+def test_get_email_attachment_returns_allowed_base64_content(base_env):
+    config = load_config()
+    service = _service(config)
+
+    attachment = service.get_email_attachment("u", "p", "INBOX", "6", "part-2")
+
+    assert attachment.filename == "note.txt"
+    assert attachment.content_type == "text/plain"
+    assert attachment.size_bytes == len(b"hello attachment")
+    assert attachment.content_base64 == encode_attachment_base64(b"hello attachment")
+
+
+def test_get_email_attachment_blocks_dangerous_or_missing_attachment(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    with pytest.raises(InvalidInputError, match="blocked by MIME type"):
+        service.get_email_attachment("u", "p", "INBOX", "6", "part-3")
+    with pytest.raises(InvalidInputError, match="blocked by extension"):
+        service.get_email_attachment("u", "p", "INBOX", "6", "part-4")
+    with pytest.raises(NotFoundError, match="Attachment not found"):
+        service.get_email_attachment("u", "p", "INBOX", "6", "part-999")
+
+    assert client.uid_calls
+
+
+def test_get_email_attachment_blocks_oversized_content(base_env, monkeypatch):
+    monkeypatch.setenv("MCP_ATTACHMENT_MAX_BYTES", "4")
+    config = load_config()
+    service = _service(config)
+
+    read = service.read_email("u", "p", "INBOX", "7")
+    assert read.attachments[0].blocked_reason == "oversized"
+
+    with pytest.raises(InvalidInputError, match="attachment exceeds maximum size"):
+        service.get_email_attachment("u", "p", "INBOX", "7", "part-2")
+
+
 def test_action_flag_blocks_before_network(base_env, monkeypatch):
     monkeypatch.setenv("ACTION_READ_EMAIL", "false")
     config = load_config()
-    service = _service(config)
+    service, client = _service_with_client(config)
     with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
         service.read_email("u", "p", "INBOX", "1")
+    with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
+        service.get_email_attachment("u", "p", "INBOX", "6", "part-2")
+    assert client.uid_calls == []
 
 
 def test_backend_error_maps_to_stable_mcp_error(base_env):

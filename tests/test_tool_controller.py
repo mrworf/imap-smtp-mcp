@@ -8,7 +8,7 @@ from imap_smtp_mcp.audit import AuditLogger, _audit_filename
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
-from imap_smtp_mcp.tool_controller import SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
+from imap_smtp_mcp.tool_controller import READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
 
 @pytest.fixture
@@ -49,6 +49,14 @@ class FakeReadService:
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20):
         return ({"uid": "1", "subject": "Hello"},)
+
+    def get_email_attachment(self, username: str, password: str, folder: str, uid: str, attachment_id: str):
+        return {
+            "filename": "note.txt",
+            "content_type": "text/plain",
+            "size_bytes": 5,
+            "content_base64": "aGVsbG8=",
+        }
 
 
 class FailingReadService:
@@ -137,6 +145,21 @@ def test_sender_identity_tool_schema_scope_and_annotations() -> None:
     assert _annotations_for("get_sender_identity") == {"readOnlyHint": True, "destructiveHint": False}
 
 
+def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    tools = controller.list_tools()
+    attachment_tool = next(tool for tool in tools if tool["name"] == "get_email_attachment")
+
+    assert TOOL_SCOPES["get_email_attachment"] == (READ_SCOPE,)
+    assert TOOL_SCHEMAS["get_email_attachment"]["required"] == ["folder", "uid", "attachment_id"]
+    assert _annotations_for("get_email_attachment") == {"readOnlyHint": True, "destructiveHint": False}
+    assert attachment_tool["outputSchema"]["required"] == ["filename", "content_type", "size_bytes", "content_base64"]
+    assert "base64" in attachment_tool["description"]
+    assert "1048576 bytes" in attachment_tool["description"]
+    assert "text/html" in attachment_tool["description"]
+
+
 def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
@@ -150,6 +173,13 @@ def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_
         request_id="emails-1",
         subject="subject",
     ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+    assert controller.call_tool(
+        "get_email_attachment",
+        {"folder": "INBOX", "uid": "1", "attachment_id": "part-2"},
+        _credentials(),
+        request_id="attachment-1",
+        subject="subject",
+    ) == {"filename": "note.txt", "content_type": "text/plain", "size_bytes": 5, "content_base64": "aGVsbG8="}
 
 
 def test_folder_tool_dispatch_uses_session_credentials(controller_env, tmp_path) -> None:

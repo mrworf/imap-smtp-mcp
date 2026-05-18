@@ -9,9 +9,10 @@ These prompts are written for ChatGPT when this IMAP/SMTP MCP connector is enabl
 - Show emails from today in `INBOX` using `search_emails` criteria like `{"and":[{"type":"since","value":"2026-05-13"},{"type":"before","value":"2026-05-14"}]}`, then summarize the senders and subjects.
 - Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches. `text` is the intended full-message search type for exact markers or terms in subject/body; use `subject` only when intentionally narrowing to the Subject header.
 - Read the message with UID `<uid>` from `INBOX`, limiting the body to 4000 characters.
+- Read the message with UID `<uid>` from `INBOX`, inspect its `attachments` metadata, and retrieve only the allowed attachment with `get_email_attachment` using its `attachment_id`.
 - Show the sender identity this connector will use for outgoing mail.
 
-`read_email` returns plain readable body text. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned.
+`read_email` returns plain readable body text and attachment metadata. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned. Attachment bytes are retrieved separately with `get_email_attachment`; HTML and JavaScript attachments are blocked by default and reported in metadata instead of returned.
 
 ## Common Send And Organize Prompts
 
@@ -41,4 +42,4 @@ For empty_trash, use a guarded skip: list or search Trash first, and call empty_
 Finally delete_folder MCP Smoke Renamed <marker> only after confirming it was created in this test and contains no non-test mail. Report each tool used and any skipped destructive step.
 ```
 
-Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `list_emails`, `read_email`, `get_sender_identity`, `send_email`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.
+Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `list_emails`, `read_email`, `get_email_attachment`, `get_sender_identity`, `send_email`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.

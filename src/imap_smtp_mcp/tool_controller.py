@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+from copy import deepcopy
 from dataclasses import asdict, is_dataclass
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ TOOL_SCOPES = {
     "search_emails": (READ_SCOPE,),
     "list_emails": (READ_SCOPE,),
     "read_email": (READ_SCOPE,),
+    "get_email_attachment": (READ_SCOPE,),
     "get_sender_identity": (SEND_SCOPE,),
     "send_email": (SEND_SCOPE,),
     "mark_read_state": (WRITE_SCOPE,),
@@ -180,6 +182,16 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["folder", "uid"],
         "properties": {"folder": {"type": "string"}, "uid": {"type": "string"}, "max_chars": {"type": "integer", "default": 20000}},
     },
+    "get_email_attachment": {
+        "type": "object",
+        "required": ["folder", "uid", "attachment_id"],
+        "additionalProperties": False,
+        "properties": {
+            "folder": {"type": "string"},
+            "uid": {"type": "string"},
+            "attachment_id": {"type": "string"},
+        },
+    },
     "get_sender_identity": {"type": "object", "properties": {}, "additionalProperties": False},
     "send_email": {
         "type": "object",
@@ -270,7 +282,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "read_email": {
         "type": "object",
-        "required": ["uid", "subject", "from_address", "to", "date", "body_text", "truncated"],
+        "required": ["uid", "subject", "from_address", "to", "date", "body_text", "attachments", "truncated"],
         "additionalProperties": False,
         "properties": {
             "uid": {"type": "string"},
@@ -279,7 +291,34 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "to": {"type": "string"},
             "date": {"type": "string"},
             "body_text": {"type": "string"},
+            "attachments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["attachment_id", "filename", "content_type", "size_bytes", "retrievable", "blocked_reason"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "attachment_id": {"type": "string"},
+                        "filename": {"type": "string"},
+                        "content_type": {"type": "string"},
+                        "size_bytes": {"type": "integer"},
+                        "retrievable": {"type": "boolean"},
+                        "blocked_reason": {"type": ["string", "null"]},
+                    },
+                },
+            },
             "truncated": {"type": "boolean"},
+        },
+    },
+    "get_email_attachment": {
+        "type": "object",
+        "required": ["filename", "content_type", "size_bytes", "content_base64"],
+        "additionalProperties": False,
+        "properties": {
+            "filename": {"type": "string"},
+            "content_type": {"type": "string"},
+            "size_bytes": {"type": "integer"},
+            "content_base64": {"type": "string"},
         },
     },
     "get_sender_identity": {
@@ -339,8 +378,8 @@ class MailToolController:
             tools.append(
                 {
                     "name": name,
-                    "description": _description_for(name),
-                    "inputSchema": schema,
+                    "description": _description_for(name, self.config),
+                    "inputSchema": _schema_for(name, schema, self.config),
                     "outputSchema": OUTPUT_SCHEMAS[name],
                     "annotations": _annotations_for(name),
                 }
@@ -374,6 +413,8 @@ class MailToolController:
             out = _jsonify(result)
             out["truncated"] = len(result.body_text) >= int(args.get("max_chars", 20000))
             return out
+        if name == "get_email_attachment":
+            return self.read_service.get_email_attachment(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), str(args["attachment_id"]))
         if name == "get_sender_identity":
             if not c.sender_email:
                 raise AuthSessionError("Sender identity is missing; reauthorize to view sender identity")
@@ -484,12 +525,27 @@ def _exception_cause_chain(exc: BaseException) -> str | None:
     return " <- ".join(causes) if causes else None
 
 
-def _description_for(name: str) -> str:
+def _schema_for(name: str, schema: dict[str, Any], config: AppConfig) -> dict[str, Any]:
+    out = deepcopy(schema)
+    if name == "get_email_attachment":
+        out["description"] = _attachment_policy_text(config)
+    return out
+
+
+def _attachment_policy_text(config: AppConfig) -> str:
+    policy = config.attachment_policy
+    blocked_mimes = ", ".join(policy.blocked_mime_types) if policy.blocked_mime_types else "none"
+    blocked_extensions = ", ".join(policy.blocked_extensions) if policy.blocked_extensions else "none"
+    return f"Attachment retrieval returns base64 file bytes for one allowed attachment. Maximum decoded size is {policy.max_bytes} bytes. Blocked MIME types: {blocked_mimes}. Blocked extensions: {blocked_extensions}."
+
+
+def _description_for(name: str, config: AppConfig | None = None) -> str:
     descriptions = {
         "list_folders": "List mailbox folders for the authenticated mail account.",
         "search_emails": "Search emails in a folder and return matching IMAP UIDs.",
         "list_emails": "List email summaries in a folder with pagination.",
-        "read_email": "Read one email by IMAP UID with bounded body text.",
+        "read_email": "Read one email by IMAP UID with bounded body text and attachment metadata.",
+        "get_email_attachment": "Retrieve one allowed email attachment by attachment_id as base64 content.",
         "get_sender_identity": "Show the captured display name and outbound email address used for sent mail.",
         "send_email": "Send an email using the authenticated SMTP credentials.",
         "mark_read_state": "Mark an email read or unread.",
@@ -502,6 +558,8 @@ def _description_for(name: str) -> str:
         "rename_folder": "Rename an IMAP folder.",
         "delete_folder": "Delete an IMAP folder using the server's default IMAP DELETE behavior.",
     }
+    if name == "get_email_attachment" and config is not None:
+        return f"{descriptions[name]} {_attachment_policy_text(config)}"
     return descriptions[name]
 
 

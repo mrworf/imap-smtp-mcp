@@ -9,6 +9,12 @@ from email import message_from_bytes
 from email.message import Message
 from typing import Any
 
+from .attachments import (
+    encode_attachment_base64,
+    policy_block_reason,
+    validate_attachment_allowed,
+    validate_attachment_filename,
+)
 from .capabilities import CapabilityError, ensure_action_enabled
 from .config import AppConfig
 from .errors import BackendUnavailableError, InvalidInputError, NotFoundError, PermissionDisabledError
@@ -72,6 +78,25 @@ class ReadEmailResult:
     to: str
     date: str
     body_text: str
+    attachments: tuple["EmailAttachmentSummary", ...] = ()
+
+
+@dataclass(frozen=True)
+class EmailAttachmentSummary:
+    attachment_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    retrievable: bool
+    blocked_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class EmailAttachmentContent:
+    filename: str
+    content_type: str
+    size_bytes: int
+    content_base64: str
 
 
 def _decode_header_field(message: Message, field: str) -> str:
@@ -221,6 +246,67 @@ def _extract_plain_text(msg: Message) -> str:
     if msg.get_content_type() == "text/html":
         return _html_to_markdown(text).strip()
     return text.strip()
+
+
+def _is_attachment_part(part: Message) -> bool:
+    if part.is_multipart():
+        return False
+    disposition = str(part.get_content_disposition() or "").lower()
+    return disposition == "attachment" or part.get_filename() is not None
+
+
+def _attachment_filename(part: Message, index: int) -> str:
+    return str(part.get_filename() or f"attachment-{index}")
+
+
+def _attachment_payload(part: Message) -> bytes | None:
+    payload = part.get_payload(decode=True)
+    if isinstance(payload, bytes):
+        return payload
+    return None
+
+
+def _attachment_summaries(msg: Message, config: AppConfig | None) -> tuple[EmailAttachmentSummary, ...]:
+    policy = config.attachment_policy if config else None
+    out: list[EmailAttachmentSummary] = []
+    for index, part in enumerate(msg.walk()):
+        if not _is_attachment_part(part):
+            continue
+        attachment_id = f"part-{index}"
+        filename = _attachment_filename(part, index)
+        content_type = part.get_content_type()
+        payload = _attachment_payload(part)
+        size_bytes = len(payload) if payload is not None else 0
+        blocked_reason = None
+        if payload is None:
+            blocked_reason = "undecodable_payload"
+        elif policy is not None:
+            try:
+                validate_attachment_filename(filename)
+            except InvalidInputError:
+                blocked_reason = "invalid_filename"
+            else:
+                blocked_reason = policy_block_reason(filename, content_type, policy)
+                if blocked_reason is None and size_bytes > policy.max_bytes:
+                    blocked_reason = "oversized"
+        out.append(
+            EmailAttachmentSummary(
+                attachment_id=attachment_id,
+                filename=filename,
+                content_type=content_type,
+                size_bytes=size_bytes,
+                retrievable=blocked_reason is None,
+                blocked_reason=blocked_reason,
+            )
+        )
+    return tuple(out)
+
+
+def _find_attachment(msg: Message, attachment_id: str) -> tuple[int, Message]:
+    for index, part in enumerate(msg.walk()):
+        if _is_attachment_part(part) and f"part-{index}" == attachment_id:
+            return index, part
+    raise NotFoundError(f"Attachment not found: {attachment_id}")
 
 
 _HTML_IGNORED_CONTAINER_TAGS = {
@@ -418,6 +504,44 @@ class ReadOnlyMailboxService:
                 to=_decode_header_field(msg, "To"),
                 date=_decode_header_field(msg, "Date"),
                 body_text=body,
+                attachments=_attachment_summaries(msg, self._config),
+            )
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
+
+    def get_email_attachment(self, username: str, password: str, folder: str, uid: str, attachment_id: str) -> EmailAttachmentContent:
+        self._enforce_action("read_email")
+        folder_name = _validate_nonempty_single_line("folder", folder)
+        uid_value = validate_single_message_uid("uid", uid)
+        attachment_id_value = _validate_nonempty_single_line("attachment_id", attachment_id)
+
+        try:
+            client = self._imap_adapter.connect(username, password)
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
+        try:
+            status, _ = client.select(encode_mailbox_name(folder_name))
+            if status != "OK":
+                raise NotFoundError(f"Folder not found: {folder_name}")
+
+            status, data = client.uid("fetch", uid_value, "(RFC822)")
+            if status != "OK" or not data or data[0] is None:
+                raise NotFoundError(f"Email not found: {uid_value}")
+
+            msg = message_from_bytes(data[0][1])
+            index, part = _find_attachment(msg, attachment_id_value)
+            filename = _attachment_filename(part, index)
+            content_type = part.get_content_type()
+            payload = _attachment_payload(part)
+            if payload is None:
+                raise InvalidInputError("attachment payload could not be decoded")
+            if self._config is not None:
+                validate_attachment_allowed(filename, content_type, len(payload), self._config.attachment_policy)
+            return EmailAttachmentContent(
+                filename=validate_attachment_filename(filename),
+                content_type=content_type,
+                size_bytes=len(payload),
+                content_base64=encode_attachment_base64(payload),
             )
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
