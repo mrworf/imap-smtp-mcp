@@ -40,6 +40,8 @@ class OAuthConfig:
     authorize_rate_limit_window_seconds: int = 900
     register_rate_limit_attempts: int = 20
     register_rate_limit_window_seconds: int = 900
+    rate_limit_max_buckets: int = 10_000
+    authorize_csrf_max_tokens: int = 5_000
     required_scopes: tuple[str, ...] = ("mail:read", "mail:send", "mail:write")
     allowed_redirect_uri_patterns: tuple[str, ...] = ()
     username_claim: str = "sub"
@@ -190,6 +192,8 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
     authorize_window = _parse_int("OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS", 900)
     register_limit = _parse_int("OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS", 20)
     register_window = _parse_int("OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS", 900)
+    rate_limit_max_buckets = _parse_int("OAUTH_RATE_LIMIT_MAX_BUCKETS", 10_000)
+    authorize_csrf_max_tokens = _parse_int("OAUTH_AUTHORIZE_CSRF_MAX_TOKENS", 5_000)
     if access_ttl <= 0:
         raise ConfigError("OAUTH_ACCESS_TOKEN_TTL_SECONDS must be > 0")
     if code_ttl <= 0:
@@ -200,6 +204,10 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         raise ConfigError("OAUTH_AUTHORIZE_RATE_LIMIT_ATTEMPTS and OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS must be > 0")
     if register_limit <= 0 or register_window <= 0:
         raise ConfigError("OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS and OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS must be > 0")
+    if rate_limit_max_buckets <= 0:
+        raise ConfigError("OAUTH_RATE_LIMIT_MAX_BUCKETS must be > 0")
+    if authorize_csrf_max_tokens <= 0:
+        raise ConfigError("OAUTH_AUTHORIZE_CSRF_MAX_TOKENS must be > 0")
     store_path = os.getenv("OAUTH_STORE_PATH", str(Path(app_data_dir) / "oauth.sqlite3"))
     return OAuthConfig(
         public_base_url=public_base_url,
@@ -216,6 +224,8 @@ def _load_oauth_config(app_data_dir: str) -> OAuthConfig:
         authorize_rate_limit_window_seconds=authorize_window,
         register_rate_limit_attempts=register_limit,
         register_rate_limit_window_seconds=register_window,
+        rate_limit_max_buckets=rate_limit_max_buckets,
+        authorize_csrf_max_tokens=authorize_csrf_max_tokens,
         required_scopes=_parse_scopes("OAUTH_REQUIRED_SCOPES", ("mail:read", "mail:send", "mail:write")),
         allowed_redirect_uri_patterns=_parse_patterns("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS"),
         username_claim=os.getenv("OAUTH_USERNAME_CLAIM", "sub"),

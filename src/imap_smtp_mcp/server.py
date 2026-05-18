@@ -60,7 +60,7 @@ class MCPHTTPServer(ThreadingHTTPServer):
         self.tool_controller = tool_controller or MailToolController(config)
         self.audit_logger = audit_logger or AuditLogger(config.audit_log_dir, debug_unredacted_logs=config.debug_unredacted_logs)
         self.rate_limiter = OAuthRateLimiter(config)
-        self.authorize_csrf_store = AuthorizeCsrfStore(config.oauth.authorization_code_ttl_seconds)
+        self.authorize_csrf_store = AuthorizeCsrfStore(config.oauth.authorization_code_ttl_seconds, config.oauth.authorize_csrf_max_tokens)
 
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
@@ -329,6 +329,7 @@ class OAuthRateLimiter:
         self._authorize_window = config.oauth.authorize_rate_limit_window_seconds
         self._register_attempts = config.oauth.register_rate_limit_attempts
         self._register_window = config.oauth.register_rate_limit_window_seconds
+        self._max_buckets = config.oauth.rate_limit_max_buckets
         self._lock = threading.RLock()
         self._buckets: dict[tuple[str, str], tuple[int, float]] = {}
 
@@ -343,35 +344,53 @@ class OAuthRateLimiter:
     def _check(self, key: tuple[str, str], limit: int, window_seconds: int) -> None:
         now = time.monotonic()
         with self._lock:
+            self._sweep_expired(now)
             count, reset_at = self._buckets.get(key, (0, now + window_seconds))
             if now >= reset_at:
                 count, reset_at = 0, now + window_seconds
             if count >= limit:
                 raise OAuthError("slow_down", "Too many OAuth attempts; try again later")
+            if key not in self._buckets and len(self._buckets) >= self._max_buckets:
+                raise OAuthError("slow_down", "Too many OAuth attempts; try again later")
             self._buckets[key] = (count + 1, reset_at)
+
+    def _sweep_expired(self, now: float) -> None:
+        expired = [key for key, (_, reset_at) in self._buckets.items() if now >= reset_at]
+        for key in expired:
+            del self._buckets[key]
 
 
 class AuthorizeCsrfStore:
-    def __init__(self, ttl_seconds: int) -> None:
+    def __init__(self, ttl_seconds: int, max_tokens: int) -> None:
         self._ttl_seconds = ttl_seconds
+        self._max_tokens = max_tokens
         self._lock = threading.RLock()
         self._tokens: dict[str, tuple[str, float]] = {}
 
     def issue(self, raw_query: str, token: str) -> None:
         query_hash = hashlib.sha256(raw_query.encode("utf-8")).hexdigest()
         with self._lock:
+            self._sweep_expired(time.monotonic())
+            if token not in self._tokens and len(self._tokens) >= self._max_tokens:
+                raise OAuthError("slow_down", "Too many OAuth authorization requests; try again later")
             self._tokens[token] = (query_hash, time.monotonic() + self._ttl_seconds)
 
     def consume(self, raw_query: str, token: str) -> None:
         query_hash = hashlib.sha256(raw_query.encode("utf-8")).hexdigest()
         now = time.monotonic()
         with self._lock:
+            self._sweep_expired(now)
             stored = self._tokens.pop(token, None)
         if stored is None:
             raise OAuthError("invalid_request", "OAuth authorization CSRF token has expired or already been used")
         stored_query_hash, expires_at = stored
         if now > expires_at or not hmac.compare_digest(stored_query_hash, query_hash):
             raise OAuthError("invalid_request", "OAuth authorization CSRF token has expired or already been used")
+
+    def _sweep_expired(self, now: float) -> None:
+        expired = [token for token, (_, expires_at) in self._tokens.items() if now > expires_at]
+        for token in expired:
+            del self._tokens[token]
 
 
 def _single_value_query(raw: str) -> dict[str, str]:
