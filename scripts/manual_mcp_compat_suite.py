@@ -14,11 +14,14 @@ import os
 import re
 import secrets
 import socket
+import smtplib
+import ssl
 import subprocess
 import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from email.message import EmailMessage
 from email.utils import parseaddr
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -27,6 +30,9 @@ REQUIRED_CONFIRMATION = "I UNDERSTAND THIS WILL MODIFY MAIL"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "src")
 SECRET_ENV_MARKERS = ("PASSWORD", "SECRET", "TOKEN", "KEY")
+ALLOWED_ATTACHMENT_FILENAME = "mcp-compat-allowed.txt"
+BLOCKED_HTML_ATTACHMENT_FILENAME = "mcp-compat-blocked.html"
+BLOCKED_JS_ATTACHMENT_FILENAME = "mcp-compat-blocked.js"
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,9 @@ class SuiteConfig:
     imap_password: str
     smtp_username: str
     smtp_password: str
+    smtp_host: str
+    smtp_port: int
+    smtp_mode: str
     sender_display_name: str
     sender_email: str
     inbox_folder: str
@@ -139,6 +148,14 @@ def _find_marker_uid(client: MCPClient, folder: str, marker: str, args: SuiteCon
     raise RuntimeError(f"Could not find marker UID for {step} in folder {folder}: {marker}")
 
 
+def _assert_marker_absent(client: MCPClient, folder: str, marker: str, args: SuiteConfig, *, step: str) -> None:
+    for _ in range(args.poll_attempts):
+        uids = _extract_uids(client.call_tool("search_emails", {"folder": folder, "criteria": _text_criteria(marker), "limit": 5}))
+        if uids:
+            raise RuntimeError(f"Unexpected marker UID for {step} in folder {folder}: {marker} -> {uids}")
+        time.sleep(args.poll_interval_seconds)
+
+
 def _text_criteria(value: str) -> dict[str, str]:
     return {"type": "text", "value": value}
 
@@ -175,6 +192,9 @@ def load_suite_config() -> SuiteConfig:
         imap_password=_env_required("MCP_COMPAT_IMAP_PASSWORD"),
         smtp_username=_env_required("MCP_COMPAT_SMTP_USERNAME"),
         smtp_password=_env_required("MCP_COMPAT_SMTP_PASSWORD"),
+        smtp_host=_env_required("SMTP_HOST"),
+        smtp_port=_env_int("SMTP_PORT", 587),
+        smtp_mode=_env_required("SMTP_MODE").lower(),
         sender_display_name=os.getenv("MCP_COMPAT_SENDER_DISPLAY_NAME", "MCP Compatibility Test"),
         sender_email=os.getenv("MCP_COMPAT_SENDER_EMAIL", _env_required("MCP_COMPAT_TEST_EMAIL")),
         inbox_folder=os.getenv("MCP_COMPAT_INBOX_FOLDER", "INBOX"),
@@ -235,6 +255,59 @@ def _pythonpath(env: dict[str, str]) -> str:
 def _fernet_key() -> str:
     raw = secrets.token_bytes(32)
     return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _send_direct_blocked_attachment_message(config: SuiteConfig, marker: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = config.sender_email
+    msg["To"] = config.test_email
+    msg["Subject"] = f"MCP compatibility blocked attachment {marker}"
+    msg.set_content(f"manual compatibility blocked attachment marker: {marker}")
+    msg.add_attachment(
+        f"<html><body>{marker}</body></html>".encode("utf-8"),
+        maintype="text",
+        subtype="html",
+        filename=BLOCKED_HTML_ATTACHMENT_FILENAME,
+    )
+    msg.add_attachment(
+        f"console.log({marker!r});".encode("utf-8"),
+        maintype="application",
+        subtype="javascript",
+        filename=BLOCKED_JS_ATTACHMENT_FILENAME,
+    )
+
+    context = ssl.create_default_context()
+    if config.smtp_mode == "ssl":
+        client = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=config.http_timeout_seconds, context=context)
+    elif config.smtp_mode == "starttls":
+        client = smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=config.http_timeout_seconds)
+        client.starttls(context=context)
+    else:
+        raise RuntimeError(f"Unsupported SMTP_MODE for direct attachment fixture: {config.smtp_mode}")
+    try:
+        client.login(config.smtp_username, config.smtp_password)
+        client.send_message(msg)
+    finally:
+        client.quit()
+
+
+def _first_attachment_by_filename(read_result: Any, filename: str) -> dict[str, Any]:
+    if not isinstance(read_result, dict) or not isinstance(read_result.get("attachments"), list):
+        raise RuntimeError("read_email response did not include attachments metadata")
+    matches = [item for item in read_result["attachments"] if isinstance(item, dict) and item.get("filename") == filename]
+    if not matches:
+        raise RuntimeError(f"Could not find attachment metadata for {filename}: {read_result.get('attachments')}")
+    return matches[0]
+
+
+def _expect_tool_failure(client: MCPClient, name: str, arguments: dict[str, Any], expected: str) -> None:
+    try:
+        client.call_tool(name, arguments)
+    except RuntimeError as exc:
+        if expected not in str(exc):
+            raise RuntimeError(f"Expected {name} failure to include {expected!r}, got: {exc}") from exc
+        return
+    raise RuntimeError(f"Expected MCP tool {name} to fail")
 
 
 def _wait_ready(base_url: str, proc: subprocess.Popen[str], redaction_values: tuple[str, ...] = ()) -> None:
@@ -436,69 +509,142 @@ def run_suite() -> None:
 
 def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
     marker = f"mcp-compat-{int(time.time())}-{secrets.token_hex(3)}"
+    blocked_marker = f"{marker}-blocked"
+    blocked_send_marker = f"{marker}-blocked-send"
     created_folder, test_folder = _temporary_folders(marker)
     cleanup_folder: str | None = None
-    print("[1/15] list_folders")
+    print("[1/20] list_folders")
     folders = client.call_tool("list_folders", {})
     print(f"  folders response: {folders}")
     _require_folders(folders, (args.inbox_folder, args.trash_folder))
 
     try:
-        print("[2/15] create_folder")
+        print("[2/20] create_folder")
         client.call_tool("create_folder", {"folder": created_folder})
         cleanup_folder = created_folder
-        print("[3/15] rename_folder")
+        print("[3/20] rename_folder")
         client.call_tool("rename_folder", {"source_folder": created_folder, "target_folder": test_folder})
         cleanup_folder = test_folder
 
-        print("[4/15] send_email (self-addressed)")
+        print("[4/20] send_email (self-addressed with allowed attachment)")
         body = f"manual compatibility test marker: {marker}"
-        client.call_tool("send_email", {"to_addresses": [args.test_email], "subject": f"MCP compatibility {marker}", "body_text": body})
+        attachment_text = f"manual compatibility attachment marker: {marker}"
+        client.call_tool(
+            "send_email",
+            {
+                "to_addresses": [args.test_email],
+                "subject": f"MCP compatibility {marker}",
+                "body_text": body,
+                "attachments": [
+                    {
+                        "filename": ALLOWED_ATTACHMENT_FILENAME,
+                        "content_type": "text/plain",
+                        "content_base64": base64.b64encode(attachment_text.encode("utf-8")).decode("ascii"),
+                    }
+                ],
+            },
+        )
 
-        print("[5/15] search_emails")
+        print("[5/20] search_emails")
         found_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="initial inbox search", limit=10)
 
-        print("[6/15] list_emails")
+        print("[6/20] list_emails")
         listed = client.call_tool("list_emails", {"folder": args.inbox_folder, "offset": 0, "limit": 50})
         listed_items = listed.get("emails", []) if isinstance(listed, dict) else listed
         print(f"  listed response length: {len(listed_items) if isinstance(listed_items, list) else 'n/a'}")
 
-        print("[7/15] read_email")
+        print("[7/20] read_email and allowed attachment metadata")
         read_result = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": found_uid, "max_chars": 50000})
         if marker not in json.dumps(read_result):
             raise RuntimeError("Read-email payload did not contain expected marker text.")
         sender = _extract_email_address(str(read_result.get("from_address", ""))) if isinstance(read_result, dict) else ""
         if sender and sender.lower() != args.sender_email.lower():
             raise RuntimeError(f"Unexpected sender address: {sender} != {args.sender_email}")
+        allowed_attachment = _first_attachment_by_filename(read_result, ALLOWED_ATTACHMENT_FILENAME)
+        if allowed_attachment.get("retrievable") is not True or allowed_attachment.get("blocked_reason") is not None:
+            raise RuntimeError(f"Allowed attachment was not marked retrievable: {allowed_attachment}")
 
-        print("[8/15] copy_email")
+        print("[8/20] get_email_attachment allowed attachment")
+        retrieved = client.call_tool(
+            "get_email_attachment",
+            {"folder": args.inbox_folder, "uid": found_uid, "attachment_id": str(allowed_attachment["attachment_id"])},
+        )
+        decoded_attachment = base64.b64decode(str(retrieved.get("content_base64", ""))).decode("utf-8")
+        if decoded_attachment != attachment_text:
+            raise RuntimeError("Retrieved allowed attachment content did not match sent content.")
+
+        print("[9/20] send_email blocked attachment rejection")
+        _expect_tool_failure(
+            client,
+            "send_email",
+            {
+                "to_addresses": [args.test_email],
+                "subject": f"MCP compatibility blocked send {blocked_send_marker}",
+                "body_text": f"this should not be sent {blocked_send_marker}",
+                "attachments": [
+                    {
+                        "filename": BLOCKED_HTML_ATTACHMENT_FILENAME,
+                        "content_type": "text/html",
+                        "content_base64": base64.b64encode(b"<html>blocked</html>").decode("ascii"),
+                    }
+                ],
+            },
+            "blocked",
+        )
+        _assert_marker_absent(client, args.inbox_folder, blocked_send_marker, args, step="blocked attachment send")
+
+        print("[10/20] direct SMTP fixture with blocked inbound attachments")
+        _send_direct_blocked_attachment_message(args, blocked_marker)
+        blocked_uid = _find_marker_uid(client, args.inbox_folder, blocked_marker, args, step="blocked attachment fixture", limit=10)
+        blocked_read = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": blocked_uid, "max_chars": 50000})
+        blocked_html = _first_attachment_by_filename(blocked_read, BLOCKED_HTML_ATTACHMENT_FILENAME)
+        blocked_js = _first_attachment_by_filename(blocked_read, BLOCKED_JS_ATTACHMENT_FILENAME)
+        if blocked_html.get("retrievable") is not False or blocked_js.get("retrievable") is not False:
+            attachments = blocked_read.get("attachments") if isinstance(blocked_read, dict) else blocked_read
+            raise RuntimeError(f"Blocked attachments were not marked blocked: {attachments}")
+        _expect_tool_failure(
+            client,
+            "get_email_attachment",
+            {"folder": args.inbox_folder, "uid": blocked_uid, "attachment_id": str(blocked_html["attachment_id"])},
+            "blocked",
+        )
+
+        print("[11/20] copy_email")
         copy_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="copy_email", limit=10)
         client.call_tool("copy_email", {"source_folder": args.inbox_folder, "target_folder": test_folder, "uid": copy_uid})
-        print("[9/15] move_email")
+        print("[12/20] move_email")
         move_uid = _find_marker_uid(client, args.inbox_folder, marker, args, step="move_email", limit=10)
         client.call_tool("move_email", {"source_folder": args.inbox_folder, "target_folder": test_folder, "uid": move_uid})
 
-        print("[10/15] search copied/moved in test folder")
+        print("[13/20] search copied/moved in test folder")
         moved_uids = _extract_uids(client.call_tool("search_emails", {"folder": test_folder, "criteria": _text_criteria(marker), "limit": 20}))
         if not moved_uids:
             raise RuntimeError("Could not find message in target test folder after move/copy.")
         test_uid = moved_uids[-1]
 
-        print("[11/15] mark_read_state true/false")
+        print("[14/20] mark_read_state true/false")
         client.call_tool("mark_read_state", {"folder": test_folder, "uid": test_uid, "is_read": True})
         client.call_tool("mark_read_state", {"folder": test_folder, "uid": test_uid, "is_read": False})
-        print("[12/15] move_to_trash")
+        print("[15/20] move_to_trash")
         for uid in moved_uids:
             client.call_tool("move_to_trash", {"source_folder": test_folder, "uid": uid})
-        print("[13/15] delete_email_permanent")
+        print("[16/20] delete_email_permanent")
         trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "criteria": _text_criteria(marker), "limit": 20}))
         for uid in trash_uids:
             client.call_tool("delete_email_permanent", {"folder": args.trash_folder, "uid": uid})
-        print("[14/15] empty_trash")
+        print("[17/20] cleanup blocked inbound fixture")
+        blocked_cleanup_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.inbox_folder, "criteria": _text_criteria(blocked_marker), "limit": 20}))
+        for uid in blocked_cleanup_uids:
+            client.call_tool("move_to_trash", {"source_folder": args.inbox_folder, "uid": uid})
+        blocked_trash_uids = _extract_uids(client.call_tool("search_emails", {"folder": args.trash_folder, "criteria": _text_criteria(blocked_marker), "limit": 20}))
+        for uid in blocked_trash_uids:
+            client.call_tool("delete_email_permanent", {"folder": args.trash_folder, "uid": uid})
+        print("[18/20] empty_trash")
         client.call_tool("empty_trash", {})
-        print("[15/15] delete_folder")
+        print("[19/20] delete_folder")
         client.call_tool("delete_folder", {"folder": test_folder})
         cleanup_folder = None
+        print("[20/20] attachment checks complete")
         print("SUCCESS: Manual MCP compatibility suite completed.")
     finally:
         if cleanup_folder:

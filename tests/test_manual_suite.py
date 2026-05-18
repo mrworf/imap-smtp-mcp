@@ -38,6 +38,9 @@ def _suite_config() -> SuiteConfig:
         imap_password="imap-pass",
         smtp_username="smtp-user",
         smtp_password="smtp-pass",
+        smtp_host="smtp.example.com",
+        smtp_port=465,
+        smtp_mode="ssl",
         sender_display_name="MCP Compatibility Test",
         sender_email="test@example.com",
         inbox_folder="INBOX",
@@ -184,7 +187,13 @@ class FakeManualClient:
         if name == "list_emails":
             return {"emails": [{"uid": "10"}]}
         if name == "read_email":
-            return {"from_address": "test@example.com", "body_text": f"manual compatibility test marker: {arguments.get('marker', '')}"}
+            return {
+                "from_address": "test@example.com",
+                "body_text": f"manual compatibility test marker: {arguments.get('marker', '')}",
+                "attachments": [],
+            }
+        if name == "get_email_attachment":
+            return {"filename": "note.txt", "content_type": "text/plain", "size_bytes": 5, "content_base64": "aGVsbG8="}
         if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
             return {"ok": True}
         raise AssertionError(f"Unexpected tool: {name}")
@@ -231,6 +240,7 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
     monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
     monkeypatch.setattr(manual_suite.time, "time", lambda: 1234567890)
     monkeypatch.setattr(manual_suite.secrets, "token_hex", lambda *_: "abc123")
+    monkeypatch.setattr(manual_suite, "_send_direct_blocked_attachment_message", lambda *_: None)
 
     class FlowClient(FakeManualClient):
         def call_tool(self, name: str, arguments: dict[str, object]):
@@ -238,18 +248,79 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
             if name == "list_folders":
                 return {"folders": self.folders}
             if name == "send_email":
+                if arguments.get("attachments") and arguments["attachments"][0]["filename"].endswith(".html"):
+                    raise RuntimeError("MCP tool send_email returned error: blocked by MIME type")
                 return {"sent": True}
             if name == "search_emails":
                 return {"uids": self.search_results.pop(0)}
             if name == "list_emails":
                 return {"emails": [{"uid": "initial"}]}
             if name == "read_email":
-                return {"from_address": "test@example.com", "body_text": marker}
+                uid = arguments.get("uid")
+                if uid == "blocked-fixture":
+                    return {
+                        "from_address": "test@example.com",
+                        "body_text": f"blocked {marker}-blocked",
+                        "attachments": [
+                            {
+                                "attachment_id": "part-2",
+                                "filename": manual_suite.BLOCKED_HTML_ATTACHMENT_FILENAME,
+                                "content_type": "text/html",
+                                "size_bytes": 10,
+                                "retrievable": False,
+                                "blocked_reason": "blocked_mime_type",
+                            },
+                            {
+                                "attachment_id": "part-3",
+                                "filename": manual_suite.BLOCKED_JS_ATTACHMENT_FILENAME,
+                                "content_type": "application/javascript",
+                                "size_bytes": 10,
+                                "retrievable": False,
+                                "blocked_reason": "blocked_mime_type",
+                            },
+                        ],
+                    }
+                return {
+                    "from_address": "test@example.com",
+                    "body_text": marker,
+                    "attachments": [
+                        {
+                            "attachment_id": "part-2",
+                            "filename": manual_suite.ALLOWED_ATTACHMENT_FILENAME,
+                            "content_type": "text/plain",
+                            "size_bytes": 63,
+                            "retrievable": True,
+                            "blocked_reason": None,
+                        }
+                    ],
+                }
+            if name == "get_email_attachment":
+                if arguments.get("uid") == "blocked-fixture":
+                    raise RuntimeError("MCP tool get_email_attachment returned error: blocked by MIME type")
+                attachment_text = f"manual compatibility attachment marker: {marker}"
+                return {
+                    "filename": manual_suite.ALLOWED_ATTACHMENT_FILENAME,
+                    "content_type": "text/plain",
+                    "size_bytes": len(attachment_text),
+                    "content_base64": manual_suite.base64.b64encode(attachment_text.encode("utf-8")).decode("ascii"),
+                }
             if name in {"create_folder", "rename_folder", "copy_email", "move_email", "mark_read_state", "move_to_trash", "delete_email_permanent", "empty_trash", "delete_folder"}:
                 return {"ok": True}
             raise AssertionError(f"Unexpected tool: {name}")
 
-    client = FlowClient(search_results=[["initial"], ["copy-fresh"], ["move-fresh"], ["test-folder-uid-a", "test-folder-uid-b"], ["trash-uid-a", "trash-uid-b"]])
+    client = FlowClient(
+        search_results=[
+            ["initial"],
+            [],
+            ["blocked-fixture"],
+            ["copy-fresh"],
+            ["move-fresh"],
+            ["test-folder-uid-a", "test-folder-uid-b"],
+            ["trash-uid-a", "trash-uid-b"],
+            ["blocked-fixture"],
+            ["blocked-trash"],
+        ]
+    )
     manual_suite._run_mail_flow(client, _suite_config())
 
     create_call = next(args for name, args in client.calls if name == "create_folder")
@@ -269,8 +340,10 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
     assert delete_call["folder"] == "MCP_COMPAT_TEST_mcp-compat-1234567890-abc123_RENAMED"
     send_call = next(args for name, args in client.calls if name == "send_email")
     assert "from_address" not in send_call
+    assert send_call["attachments"][0]["filename"] == manual_suite.ALLOWED_ATTACHMENT_FILENAME
+    assert any(name == "get_email_attachment" for name, _ in client.calls)
     search_calls = [args for name, args in client.calls if name == "search_emails"]
-    assert len(search_calls) >= 5
+    assert len(search_calls) >= 9
     assert all(json.dumps(args).find("mcp-compat-1234567890-abc123") >= 0 for args in search_calls)
 
 
