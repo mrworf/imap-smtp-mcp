@@ -33,6 +33,8 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `OAUTH_AUTHORIZE_RATE_LIMIT_WINDOW_SECONDS`: authorize rate-limit window. Default: `900`.
 - `OAUTH_REGISTER_RATE_LIMIT_ATTEMPTS`: client registration attempts allowed per IP per window. Default: `20`.
 - `OAUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS`: client registration rate-limit window. Default: `900`.
+- `OAUTH_RATE_LIMIT_MAX_BUCKETS`: maximum in-memory OAuth rate-limit buckets before new bucket creation returns `slow_down`. Expired buckets are swept before enforcing this cap. Default: `10000`.
+- `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`: maximum outstanding OAuth authorize-form CSRF tokens before new authorize forms return `slow_down`. Expired tokens are swept before enforcing this cap. Default: `5000`.
 - `OAUTH_USERNAME_CLAIM`: token claim used as the MCP user subject. Default: `sub`.
 
 ## IMAP

@@ -117,7 +117,7 @@ Restrict Dynamic Client Registration to known redirect destinations. For ChatGPT
 OAUTH_ALLOWED_REDIRECT_URI_PATTERNS=https://chatgpt\.com/connector/oauth/cb
 ```
 
-The server also rate-limits registration and authorize POST attempts locally. Keep the defaults unless your reverse proxy already enforces stricter limits.
+The server also rate-limits registration and authorize POST attempts locally, and bounds in-memory OAuth rate-limit and authorize-form CSRF state with `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`. Keep these app-local protections enabled, and use reverse-proxy request/IP limits for public deployments.
 
 During OAuth authorization, users also confirm the display name and outbound email address that the server will use for sent mail. Set `SMTP_FROM_DOMAIN=example.com` to let the form suggest `smtp_username@example.com` when the SMTP username is only a local part; usernames that already contain `@` are copied as-is. Users may edit the suggested outbound address before authorizing.
 

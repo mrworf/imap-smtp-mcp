@@ -17,6 +17,7 @@
 - Configure `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` narrowly for the clients you expect, such as the ChatGPT connector redirect.
 - Review failed `oauth_register` audit events to see the attempted `redirect_uris` when tuning the allowlist.
 - Keep the local registration and authorize rate limits enabled even when a reverse proxy also rate-limits traffic.
+- Keep `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS` bounded so hostile OAuth traffic cannot grow in-memory state without limit. These app-local caps protect the process; public deployments should still enforce request and IP limits at the reverse proxy.
 - Treat a refresh-token reuse error as a session compromise; the server revokes the credential session when reuse is detected.
 
 ## Action flag hardening
