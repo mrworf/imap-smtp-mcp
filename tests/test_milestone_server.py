@@ -15,12 +15,12 @@ import pytest
 from imap_smtp_mcp.config import ConfigError, load_config
 from imap_smtp_mcp.oauth import CredentialVault, OAuthError, OAuthService
 from imap_smtp_mcp.server import AUTHORIZE_CSRF_COOKIE, MAX_FORM_BODY_BYTES, MAX_JSON_BODY_BYTES, AuthorizeCsrfStore, MCPHTTPServer, MCPRequestHandler, OAuthRateLimiter, StartupError, build_server
-from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
+from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, TOOL_SCHEMAS
 
 
 class FakeController:
     def list_tools(self):
-        return [{"name": name, "inputSchema": schema} for name, schema in TOOL_SCHEMAS.items()]
+        return [{"name": name, "inputSchema": schema, "outputSchema": OUTPUT_SCHEMAS[name]} for name, schema in TOOL_SCHEMAS.items()]
 
     def call_tool(self, name, arguments, credentials, *, request_id, subject):
         return {"tool": name, "imap_username": credentials.imap_username, "smtp_username": credentials.smtp_username}
@@ -658,6 +658,7 @@ def test_mcp_requires_bearer_and_lists_tools(http_server):
     assert any(tool["name"] == "get_sender_identity" for tool in tools)
     create_folder = next(tool for tool in tools if tool["name"] == "create_folder")
     assert create_folder["inputSchema"]["required"] == ["folder"]
+    assert create_folder["outputSchema"]["required"] == ["created"]
 
 
 def test_mcp_tool_call_uses_oauth_session_credentials(http_server):
