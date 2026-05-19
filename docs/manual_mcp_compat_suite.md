@@ -15,7 +15,7 @@ It also configures `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS` for the suite's ChatGPT
 
 The suite verifies that the configured inbox and trash folder exist before sending mail. It sends one MCP-generated message with an allowed text attachment, retrieves that attachment with `get_email_attachment`, verifies that blocked outbound attachments fail without delivery, appends one direct IMAP fixture message with blocked HTML/JavaScript attachments, confirms MCP reports but refuses to retrieve those blocked attachments, creates a unique temporary test folder, renames it once, uses it for copy/move/mark/trash operations, and deletes it before finishing. During the destructive flow it re-searches for the unique per-run marker before copy and move operations because live IMAP mailbox UID visibility can change between operations.
 
-Read/list tool responses are object-shaped for ChatGPT compatibility; for example, `list_folders` returns a `folders` array and `list_emails` returns an `emails` array.
+Read/list tool responses are object-shaped for ChatGPT compatibility; for example, `list_folders` returns a `folders` array and `list_emails`/`get_recent_mail` return an `emails` array. `search_mail`, `get_recent_mail`, and `send_mail` are ChatGPT-friendly aliases over the lower-level IMAP/SMTP tools.
 
 `/sse` is Streamable HTTP-compatible JSON-RPC for ChatGPT. It is not a strict legacy long-lived SSE stream. Native stdio for Claude Desktop is not implemented; use an external HTTP-to-stdio bridge if needed.
 
@@ -24,8 +24,11 @@ It verifies:
 - OAuth authorization with IMAP login verification
 - `list_folders`
 - `send_email`
+- `send_mail`
 - `search_emails`
+- `search_mail`
 - `list_emails`
+- `get_recent_mail`
 - `read_email`
 - `get_email_attachment` when a matching message exposes an allowed attachment
 - `create_folder`

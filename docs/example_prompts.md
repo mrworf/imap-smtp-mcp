@@ -7,6 +7,8 @@ If Gmail or another mail connector is enabled in the same chat, include “use P
 ## Common Read Prompts
 
 - Use Personal IMAP/SMTP Mail Connector, not Gmail, and list my mail folders.
+- Use Personal IMAP/SMTP Mail Connector, not Gmail, and search my mail for `invoice` with `search_mail`, returning up to 25 matches from `INBOX`.
+- Use Personal IMAP/SMTP Mail Connector, not Gmail, and get my 20 most recent messages with `get_recent_mail`.
 - Show the 20 most recent messages in `INBOX`.
 - Show emails from today in `INBOX` using `search_emails` criteria like `{"and":[{"type":"since","value":"2026-05-13"},{"type":"before","value":"2026-05-14"}]}`, then summarize the senders and subjects.
 - Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches. `text` is the intended full-message search type for exact markers or terms in subject/body; use `subject` only when intentionally narrowing to the Subject header.
@@ -18,6 +20,7 @@ If Gmail or another mail connector is enabled in the same chat, include “use P
 
 ## Common Send And Organize Prompts
 
+- Use Personal IMAP/SMTP Mail Connector, not Gmail, and send mail to `person@example.com` with `send_mail`, subject `Hello from MCP`, and the body `This is a test message from my Personal IMAP/SMTP Mail Connector.`
 - Use Personal IMAP/SMTP Mail Connector, not Gmail, and send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my Personal IMAP/SMTP Mail Connector.`
 - Send an email to `person@example.com` with subject `Files from MCP`, body `Attached are the requested files.`, and no more than the connector's advertised attachment limit. Do not attach HTML or JavaScript unless the tool definition says this deployment allows them.
 - Create a folder named `MCP Test <unique-marker>`, then rename it to `MCP Test Renamed <unique-marker>`.
@@ -45,4 +48,6 @@ For empty_trash, use a guarded skip: list or search Trash first, and call empty_
 Finally delete_folder MCP Smoke Renamed <marker> only after confirming it was created in this test and contains no non-test mail. Report each tool used and any skipped destructive step.
 ```
 
-Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `list_emails`, `read_email`, `get_email_attachment`, `get_sender_identity`, `send_email`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.
+Prefer the ChatGPT-friendly aliases `search_mail`, `get_recent_mail`, and `send_mail` for ordinary natural-language requests. The lower-level tools remain available for exact IMAP UID and folder workflows.
+
+Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `search_mail`, `list_emails`, `get_recent_mail`, `read_email`, `get_email_attachment`, `get_sender_identity`, `send_email`, `send_mail`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.

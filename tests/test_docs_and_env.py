@@ -189,15 +189,19 @@ def test_example_prompts_cover_common_and_full_capability_flows() -> None:
     assert "Full Capability Smoke Prompt" in prompts
     assert "guarded skip" in prompts
     assert "call empty_trash only if Trash is confirmed to contain no messages except MCP-created messages" in prompts
+    assert "Prefer the ChatGPT-friendly aliases `search_mail`, `get_recent_mail`, and `send_mail`" in prompts
 
     for capability in (
         "list_folders",
         "search_emails",
+        "search_mail",
         "list_emails",
+        "get_recent_mail",
         "read_email",
         "get_email_attachment",
         "get_sender_identity",
         "send_email",
+        "send_mail",
         "mark_read_state",
         "move_email",
         "copy_email",

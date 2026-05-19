@@ -45,13 +45,23 @@ class FakeWriteService:
 
 
 class FakeReadService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
     def list_folders(self, username: str, password: str) -> tuple[str, ...]:
+        self.calls.append(("list_folders", (username, password)))
         return ("INBOX", "Sent")
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20):
+        self.calls.append(("list_emails", (username, password, folder, offset, limit)))
         return ({"uid": "1", "subject": "Hello"},)
 
+    def search_emails(self, username: str, password: str, folder: str, criteria: object, limit: int = 50):
+        self.calls.append(("search_emails", (username, password, folder, criteria, limit)))
+        return ("1", "2")
+
     def get_email_attachment(self, username: str, password: str, folder: str, uid: str, attachment_id: str):
+        self.calls.append(("get_email_attachment", (username, password, folder, uid, attachment_id)))
         return {
             "filename": "note.txt",
             "content_type": "text/plain",
@@ -149,6 +159,19 @@ def test_sender_identity_tool_schema_scope_and_annotations() -> None:
     assert _annotations_for("get_sender_identity") == {"readOnlyHint": True, "destructiveHint": False}
 
 
+def test_mail_alias_tool_schemas_scopes_and_annotations() -> None:
+    assert TOOL_SCOPES["search_mail"] == (READ_SCOPE,)
+    assert TOOL_SCOPES["get_recent_mail"] == (READ_SCOPE,)
+    assert TOOL_SCOPES["send_mail"] == (SEND_SCOPE,)
+    assert TOOL_SCHEMAS["search_mail"]["required"] == ["query"]
+    assert TOOL_SCHEMAS["search_mail"]["properties"]["folder"]["default"] == "INBOX"
+    assert TOOL_SCHEMAS["get_recent_mail"]["properties"]["limit"]["default"] == 20
+    assert TOOL_SCHEMAS["send_mail"]["required"] == TOOL_SCHEMAS["send_email"]["required"]
+    assert _annotations_for("search_mail") == {"readOnlyHint": True, "destructiveHint": False}
+    assert _annotations_for("get_recent_mail") == {"readOnlyHint": True, "destructiveHint": False}
+    assert _annotations_for("send_mail") == {"readOnlyHint": False, "destructiveHint": False}
+
+
 def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
@@ -168,12 +191,15 @@ def test_send_tool_schema_documents_attachment_limits(controller_env, tmp_path) 
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
     send_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_email")
+    send_mail_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_mail")
 
     assert "Personal IMAP/SMTP Mail Connector" in send_tool["description"]
     assert "10 attachments" in send_tool["description"]
     assert "1048576 decoded bytes" in send_tool["description"]
     assert "base64" in send_tool["inputSchema"]["properties"]["attachments"]["description"]
     assert send_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
+    assert "10 attachments" in send_mail_tool["description"]
+    assert send_mail_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
 
 
 def test_tool_descriptions_include_sender_identity_without_backend_usernames(controller_env, tmp_path) -> None:
@@ -220,6 +246,75 @@ def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_
         request_id="attachment-1",
         subject="subject",
     ) == {"filename": "note.txt", "content_type": "text/plain", "size_bytes": 5, "content_base64": "aGVsbG8="}
+
+
+def test_mail_aliases_dispatch_to_existing_read_services(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_read = FakeReadService()
+    controller.read_service = fake_read
+
+    assert controller.call_tool(
+        "search_mail",
+        {
+            "query": "invoice",
+            "from": "billing@example.com",
+            "subject": "May",
+            "since": "2026-05-01",
+            "before": "2026-06-01",
+            "unread": True,
+            "limit": 10,
+        },
+        _credentials(),
+        request_id="search-mail-1",
+        subject="subject",
+    ) == {"uids": ["1", "2"]}
+    assert controller.call_tool(
+        "get_recent_mail",
+        {"limit": 5},
+        _credentials(),
+        request_id="recent-mail-1",
+        subject="subject",
+    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+
+    assert fake_read.calls == [
+        (
+            "search_emails",
+            (
+                "imap-user",
+                "imap-pass",
+                "INBOX",
+                {
+                    "and": [
+                        {"type": "text", "value": "invoice"},
+                        {"type": "from", "value": "billing@example.com"},
+                        {"type": "subject", "value": "May"},
+                        {"type": "since", "value": "2026-05-01"},
+                        {"type": "before", "value": "2026-06-01"},
+                        {"type": "unseen"},
+                    ]
+                },
+                10,
+            ),
+        ),
+        ("list_emails", ("imap-user", "imap-pass", "INBOX", 0, 5)),
+    ]
+
+
+def test_search_mail_rejects_invalid_inputs_before_read_service(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_read = FakeReadService()
+    controller.read_service = fake_read
+
+    with pytest.raises(InvalidInputError, match="query is required"):
+        controller.call_tool("search_mail", {}, _credentials(), request_id="search-mail-missing", subject="subject")
+    with pytest.raises(InvalidInputError, match="since must use YYYY-MM-DD"):
+        controller.call_tool("search_mail", {"query": "invoice", "since": "today"}, _credentials(), request_id="search-mail-date", subject="subject")
+    with pytest.raises(InvalidInputError, match="unread must be a boolean"):
+        controller.call_tool("search_mail", {"query": "invoice", "unread": "yes"}, _credentials(), request_id="search-mail-unread", subject="subject")
+
+    assert fake_read.calls == []
 
 
 def test_folder_tool_dispatch_uses_session_credentials(controller_env, tmp_path) -> None:
@@ -315,6 +410,39 @@ def test_send_tool_uses_session_sender_and_audits_spoof_attempt(controller_env, 
     assert "Body" not in "\n".join(log_lines)
 
 
+def test_send_mail_alias_uses_session_sender_and_existing_send_service(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_send = FakeSendService()
+    controller.send_service = fake_send
+
+    result = controller.call_tool(
+        "send_mail",
+        {"to_addresses": ["bob@example.com"], "subject": "Subject", "body_text": "Body", "append_to_sent": False},
+        _credentials(),
+        request_id="send-mail-1",
+        subject="subject",
+    )
+
+    assert result == {"sent": True}
+    assert fake_send.calls == [
+        {
+            "smtp_username": "smtp-user",
+            "smtp_password": "smtp-pass",
+            "imap_username": "imap-user",
+            "imap_password": "imap-pass",
+            "from_address": "sender@example.com",
+            "to_addresses": ("bob@example.com",),
+            "subject": "Subject",
+            "body_text": "Body",
+            "from_display_name": "Test Sender",
+            "reply_to_address": None,
+            "append_to_sent": False,
+            "attachments": (),
+        }
+    ]
+
+
 def test_send_tool_requires_sender_identity_before_network(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
@@ -345,6 +473,24 @@ def test_send_tool_action_flag_blocks_before_sender_identity(controller_env, mon
             {"to_addresses": ["bob@example.com"], "subject": "Subject", "body_text": "Body"},
             _legacy_credentials(),
             request_id="send-3",
+            subject="subject",
+        )
+    assert fake_send.calls == []
+
+
+def test_send_mail_alias_action_flag_blocks_before_sender_identity(controller_env, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ACTION_SEND_EMAIL", "false")
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_send = FakeSendService()
+    controller.send_service = fake_send
+
+    with pytest.raises(PermissionDisabledError, match="Action disabled: send_email"):
+        controller.call_tool(
+            "send_mail",
+            {"to_addresses": ["bob@example.com"], "subject": "Subject", "body_text": "Body"},
+            _legacy_credentials(),
+            request_id="send-mail-disabled",
             subject="subject",
         )
     assert fake_send.calls == []

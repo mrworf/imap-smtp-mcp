@@ -13,6 +13,7 @@ When Gmail or another mail connector is also enabled, prompt ChatGPT with “use
 - ChatGPT-compatible remote MCP over Streamable HTTP-style JSON-RPC at `/sse`.
 - Built-in OAuth authorization-code + PKCE flow with Dynamic Client Registration.
 - Separate IMAP and SMTP credentials per OAuth session.
+- ChatGPT-friendly mail aliases for common search, recent-mail, and send-mail requests.
 - SQLite persistence for OAuth clients, sessions, authorization codes, and refresh tokens.
 - Encrypted credential storage and audit logging with secret redaction.
 - IMAP folder lifecycle tools for creating, renaming, and deleting folders, guarded by write scopes and disabled-by-default action flags.

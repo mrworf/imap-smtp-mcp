@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import traceback
 from copy import deepcopy
 from dataclasses import asdict, is_dataclass
@@ -25,11 +26,14 @@ APP_DISPLAY_NAME = "Personal IMAP/SMTP Mail Connector"
 TOOL_SCOPES = {
     "list_folders": (READ_SCOPE,),
     "search_emails": (READ_SCOPE,),
+    "search_mail": (READ_SCOPE,),
     "list_emails": (READ_SCOPE,),
+    "get_recent_mail": (READ_SCOPE,),
     "read_email": (READ_SCOPE,),
     "get_email_attachment": (READ_SCOPE,),
     "get_sender_identity": (SEND_SCOPE,),
     "send_email": (SEND_SCOPE,),
+    "send_mail": (SEND_SCOPE,),
     "mark_read_state": (WRITE_SCOPE,),
     "move_email": (WRITE_SCOPE,),
     "copy_email": (WRITE_SCOPE,),
@@ -59,6 +63,7 @@ _SEARCH_FLAG_TYPES = (
     "flagged",
     "unflagged",
 )
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 _SEARCH_CRITERIA_SCHEMA: dict[str, Any] = {
@@ -173,10 +178,35 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "limit": {"type": "integer", "default": 50},
         },
     },
+    "search_mail": {
+        "type": "object",
+        "required": ["query"],
+        "additionalProperties": False,
+        "properties": {
+            "query": {"type": "string", "minLength": 1},
+            "folder": {"type": "string", "default": "INBOX"},
+            "from": {"type": "string", "minLength": 1},
+            "to": {"type": "string", "minLength": 1},
+            "subject": {"type": "string", "minLength": 1},
+            "since": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+            "before": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+            "unread": {"type": "boolean"},
+            "limit": {"type": "integer", "default": 25},
+        },
+    },
     "list_emails": {
         "type": "object",
         "required": ["folder"],
         "properties": {"folder": {"type": "string"}, "offset": {"type": "integer", "default": 0}, "limit": {"type": "integer", "default": 20}},
+    },
+    "get_recent_mail": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "folder": {"type": "string", "default": "INBOX"},
+            "offset": {"type": "integer", "default": 0},
+            "limit": {"type": "integer", "default": 20},
+        },
     },
     "read_email": {
         "type": "object",
@@ -195,6 +225,30 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "get_sender_identity": {"type": "object", "properties": {}, "additionalProperties": False},
     "send_email": {
+        "type": "object",
+        "required": ["to_addresses", "subject", "body_text"],
+        "properties": {
+            "to_addresses": {"type": "array", "items": {"type": "string"}},
+            "subject": {"type": "string"},
+            "body_text": {"type": "string"},
+            "attachments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["filename", "content_type", "content_base64"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "filename": {"type": "string"},
+                        "content_type": {"type": "string"},
+                        "content_base64": {"type": "string"},
+                    },
+                },
+                "default": [],
+            },
+            "append_to_sent": {"type": "boolean", "default": True},
+        },
+    },
+    "send_mail": {
         "type": "object",
         "required": ["to_addresses", "subject", "body_text"],
         "properties": {
@@ -274,7 +328,34 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "additionalProperties": False,
         "properties": {"uids": {"type": "array", "items": {"type": "string"}}},
     },
+    "search_mail": {
+        "type": "object",
+        "required": ["uids"],
+        "additionalProperties": False,
+        "properties": {"uids": {"type": "array", "items": {"type": "string"}}},
+    },
     "list_emails": {
+        "type": "object",
+        "required": ["emails"],
+        "additionalProperties": False,
+        "properties": {
+            "emails": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["uid", "subject", "from_address", "date"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "uid": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "from_address": {"type": "string"},
+                        "date": {"type": "string"},
+                    },
+                },
+            }
+        },
+    },
+    "get_recent_mail": {
         "type": "object",
         "required": ["emails"],
         "additionalProperties": False,
@@ -346,6 +427,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "send_email": {"type": "object", "required": ["sent"], "additionalProperties": False, "properties": {"sent": {"type": "boolean"}}},
+    "send_mail": {"type": "object", "required": ["sent"], "additionalProperties": False, "properties": {"sent": {"type": "boolean"}}},
     "mark_read_state": {"type": "object", "required": ["updated"], "additionalProperties": False, "properties": {"updated": {"type": "boolean"}}},
     "move_email": {"type": "object", "required": ["moved"], "additionalProperties": False, "properties": {"moved": {"type": "boolean"}}},
     "copy_email": {"type": "object", "required": ["copied"], "additionalProperties": False, "properties": {"copied": {"type": "boolean"}}},
@@ -421,8 +503,13 @@ class MailToolController:
             return {"folders": self.read_service.list_folders(c.imap_username, c.imap_password)}
         if name == "search_emails":
             return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, str(args["folder"]), args["criteria"], int(args.get("limit", 50)))}
+        if name == "search_mail":
+            criteria = _search_mail_criteria(args)
+            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), criteria, int(args.get("limit", 25)))}
         if name == "list_emails":
             return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, str(args["folder"]), int(args.get("offset", 0)), int(args.get("limit", 20)))}
+        if name == "get_recent_mail":
+            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), int(args.get("offset", 0)), int(args.get("limit", 20)))}
         if name == "read_email":
             result = self.read_service.read_email(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), int(args.get("max_chars", 20000)))
             out = _jsonify(result)
@@ -434,7 +521,7 @@ class MailToolController:
             if not c.sender_email:
                 raise AuthSessionError("Sender identity is missing; reauthorize to view sender identity")
             return {"sender_display_name": c.sender_display_name or "", "sender_email": c.sender_email}
-        if name == "send_email":
+        if name in {"send_email", "send_mail"}:
             try:
                 ensure_action_enabled("send_email", self.config)
             except CapabilityError as exc:
@@ -510,6 +597,55 @@ class MailToolController:
         )
 
 
+def _required_str(args: dict[str, Any], name: str) -> str:
+    value = args.get(name)
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{name} is required")
+    normalized = value.strip()
+    if not normalized:
+        raise InvalidInputError(f"{name} must not be empty")
+    if "\r" in normalized or "\n" in normalized:
+        raise InvalidInputError(f"{name} must be single-line")
+    return normalized
+
+
+def _optional_str(args: dict[str, Any], name: str, default: str) -> str:
+    if name not in args:
+        return default
+    return _required_str(args, name)
+
+
+def _optional_date(args: dict[str, Any], name: str) -> str | None:
+    if name not in args:
+        return None
+    value = _required_str(args, name)
+    if not _ISO_DATE_RE.match(value):
+        raise InvalidInputError(f"{name} must use YYYY-MM-DD")
+    return value
+
+
+def _search_mail_criteria(args: dict[str, Any]) -> dict[str, Any]:
+    criteria: list[dict[str, Any]] = [{"type": "text", "value": _required_str(args, "query")}]
+    for arg_name, criteria_type in (("from", "from"), ("to", "to"), ("subject", "subject")):
+        if arg_name in args:
+            criteria.append({"type": criteria_type, "value": _required_str(args, arg_name)})
+    since = _optional_date(args, "since")
+    if since is not None:
+        criteria.append({"type": "since", "value": since})
+    before = _optional_date(args, "before")
+    if before is not None:
+        criteria.append({"type": "before", "value": before})
+    unread = args.get("unread")
+    if unread is not None:
+        if not isinstance(unread, bool):
+            raise InvalidInputError("unread must be a boolean")
+        if unread:
+            criteria.append({"type": "unseen"})
+    if len(criteria) == 1:
+        return criteria[0]
+    return {"and": criteria}
+
+
 def _safe_optional(value: Any) -> str | None:
     if value is None:
         return None
@@ -550,6 +686,10 @@ def _schema_for(name: str, schema: dict[str, Any], config: AppConfig) -> dict[st
         policy = config.attachment_policy
         out["properties"]["attachments"]["description"] = f"Optional base64 attachments. Maximum {policy.max_count} attachments, each at most {policy.max_bytes} decoded bytes. { _attachment_blocklist_text(config) } If any attachment is invalid or blocked, no email is sent."
         out["properties"]["attachments"]["maxItems"] = policy.max_count
+    if name == "send_mail":
+        policy = config.attachment_policy
+        out["properties"]["attachments"]["description"] = f"Optional base64 attachments. Maximum {policy.max_count} attachments, each at most {policy.max_bytes} decoded bytes. { _attachment_blocklist_text(config) } If any attachment is invalid or blocked, no email is sent."
+        out["properties"]["attachments"]["maxItems"] = policy.max_count
     return out
 
 
@@ -578,11 +718,14 @@ def _description_for(name: str, config: AppConfig | None = None, credentials: Ma
     descriptions = {
         "list_folders": "List mailbox folders for the authenticated mail account.",
         "search_emails": "Search emails in a folder and return matching IMAP UIDs.",
+        "search_mail": "Search mail with simple query, sender, recipient, subject, date, and unread filters and return matching IMAP UIDs.",
         "list_emails": "List email summaries in a folder with pagination.",
+        "get_recent_mail": "Get recent mail summaries in a folder with pagination.",
         "read_email": "Read one email by IMAP UID with bounded body text and attachment metadata.",
         "get_email_attachment": "Retrieve one allowed email attachment by attachment_id as base64 content.",
         "get_sender_identity": "Show the captured display name and outbound email address used for sent mail.",
         "send_email": "Send an email using the authenticated SMTP credentials.",
+        "send_mail": "Send mail using the authenticated SMTP credentials.",
         "mark_read_state": "Mark an email read or unread.",
         "move_email": "Move an email from one folder to another.",
         "copy_email": "Copy an email from one folder to another.",
@@ -596,13 +739,13 @@ def _description_for(name: str, config: AppConfig | None = None, credentials: Ma
     routing_text = _mailbox_routing_text(credentials)
     if name == "get_email_attachment" and config is not None:
         return f"{descriptions[name]} {routing_text} {_attachment_policy_text(config)}"
-    if name == "send_email" and config is not None:
+    if name in {"send_email", "send_mail"} and config is not None:
         policy = config.attachment_policy
         return f"{descriptions[name]} {routing_text} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
     return f"{descriptions[name]} {routing_text}"
 
 
 def _annotations_for(name: str) -> dict[str, Any]:
-    if name in {"send_email", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
+    if name in {"send_email", "send_mail", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
         return {"readOnlyHint": False, "destructiveHint": name in {"delete_email_permanent", "empty_trash", "delete_folder"}}
     return {"readOnlyHint": True, "destructiveHint": False}
