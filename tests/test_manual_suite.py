@@ -38,9 +38,9 @@ def _suite_config() -> SuiteConfig:
         imap_password="imap-pass",
         smtp_username="smtp-user",
         smtp_password="smtp-pass",
-        smtp_host="smtp.example.com",
-        smtp_port=465,
-        smtp_mode="ssl",
+        imap_host="imap.example.com",
+        imap_port=993,
+        imap_mode="ssl",
         sender_display_name="MCP Compatibility Test",
         sender_email="test@example.com",
         inbox_folder="INBOX",
@@ -240,7 +240,7 @@ def test_run_mail_flow_creates_renames_uses_and_deletes_temp_folder(monkeypatch)
     monkeypatch.setattr(manual_suite.time, "sleep", lambda *_: None)
     monkeypatch.setattr(manual_suite.time, "time", lambda: 1234567890)
     monkeypatch.setattr(manual_suite.secrets, "token_hex", lambda *_: "abc123")
-    monkeypatch.setattr(manual_suite, "_send_direct_blocked_attachment_message", lambda *_: None)
+    monkeypatch.setattr(manual_suite, "_append_direct_blocked_attachment_message", lambda *_: None)
 
     class FlowClient(FakeManualClient):
         def call_tool(self, name: str, arguments: dict[str, object]):

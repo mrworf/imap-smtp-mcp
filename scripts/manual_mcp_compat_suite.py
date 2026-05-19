@@ -14,7 +14,7 @@ import os
 import re
 import secrets
 import socket
-import smtplib
+import imaplib
 import ssl
 import subprocess
 import sys
@@ -46,9 +46,9 @@ class SuiteConfig:
     imap_password: str
     smtp_username: str
     smtp_password: str
-    smtp_host: str
-    smtp_port: int
-    smtp_mode: str
+    imap_host: str
+    imap_port: int
+    imap_mode: str
     sender_display_name: str
     sender_email: str
     inbox_folder: str
@@ -192,9 +192,9 @@ def load_suite_config() -> SuiteConfig:
         imap_password=_env_required("MCP_COMPAT_IMAP_PASSWORD"),
         smtp_username=_env_required("MCP_COMPAT_SMTP_USERNAME"),
         smtp_password=_env_required("MCP_COMPAT_SMTP_PASSWORD"),
-        smtp_host=_env_required("SMTP_HOST"),
-        smtp_port=_env_int("SMTP_PORT", 587),
-        smtp_mode=_env_required("SMTP_MODE").lower(),
+        imap_host=_env_required("IMAP_HOST"),
+        imap_port=_env_int("IMAP_PORT", 993),
+        imap_mode=_env_required("IMAP_MODE").lower(),
         sender_display_name=os.getenv("MCP_COMPAT_SENDER_DISPLAY_NAME", "MCP Compatibility Test"),
         sender_email=os.getenv("MCP_COMPAT_SENDER_EMAIL", _env_required("MCP_COMPAT_TEST_EMAIL")),
         inbox_folder=os.getenv("MCP_COMPAT_INBOX_FOLDER", "INBOX"),
@@ -257,7 +257,7 @@ def _fernet_key() -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
-def _send_direct_blocked_attachment_message(config: SuiteConfig, marker: str) -> None:
+def _append_direct_blocked_attachment_message(config: SuiteConfig, marker: str) -> None:
     msg = EmailMessage()
     msg["From"] = config.sender_email
     msg["To"] = config.test_email
@@ -277,18 +277,20 @@ def _send_direct_blocked_attachment_message(config: SuiteConfig, marker: str) ->
     )
 
     context = ssl.create_default_context()
-    if config.smtp_mode == "ssl":
-        client = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=config.http_timeout_seconds, context=context)
-    elif config.smtp_mode == "starttls":
-        client = smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=config.http_timeout_seconds)
-        client.starttls(context=context)
+    if config.imap_mode == "ssl":
+        client = imaplib.IMAP4_SSL(config.imap_host, config.imap_port, ssl_context=context)
+    elif config.imap_mode == "starttls":
+        client = imaplib.IMAP4(config.imap_host, config.imap_port)
+        client.starttls(ssl_context=context)
     else:
-        raise RuntimeError(f"Unsupported SMTP_MODE for direct attachment fixture: {config.smtp_mode}")
+        raise RuntimeError(f"Unsupported IMAP_MODE for direct attachment fixture: {config.imap_mode}")
     try:
-        client.login(config.smtp_username, config.smtp_password)
-        client.send_message(msg)
+        client.login(config.imap_username, config.imap_password)
+        status, data = client.append(config.inbox_folder, None, None, msg.as_bytes())
+        if status != "OK":
+            raise RuntimeError(f"IMAP APPEND blocked attachment fixture failed: {data!r}")
     finally:
-        client.quit()
+        client.logout()
 
 
 def _first_attachment_by_filename(read_result: Any, filename: str) -> dict[str, Any]:
@@ -593,8 +595,8 @@ def _run_mail_flow(client: MCPClient, args: SuiteConfig) -> None:
         )
         _assert_marker_absent(client, args.inbox_folder, blocked_send_marker, args, step="blocked attachment send")
 
-        print("[10/20] direct SMTP fixture with blocked inbound attachments")
-        _send_direct_blocked_attachment_message(args, blocked_marker)
+        print("[10/20] direct IMAP fixture with blocked inbound attachments")
+        _append_direct_blocked_attachment_message(args, blocked_marker)
         blocked_uid = _find_marker_uid(client, args.inbox_folder, blocked_marker, args, step="blocked attachment fixture", limit=10)
         blocked_read = client.call_tool("read_email", {"folder": args.inbox_folder, "uid": blocked_uid, "max_chars": 50000})
         blocked_html = _first_attachment_by_filename(blocked_read, BLOCKED_HTML_ATTACHMENT_FILENAME)
