@@ -1,6 +1,7 @@
 # IMAP/SMTP MCP
 
 [![CI](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml)
+[![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
 
 `imap-smtp-mcp` is a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
 
@@ -54,4 +55,3 @@ The shell helper is not a production launcher. It creates local runtime director
 ## License
 
 This project is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
-

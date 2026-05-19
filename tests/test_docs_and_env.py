@@ -93,9 +93,10 @@ def test_readme_describes_project_and_links_docs() -> None:
     readme = readme_path.read_text(encoding="utf-8")
 
     assert "actions/workflows/ci.yml/badge.svg?branch=main" in readme
+    assert "[![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)]" in readme
     assert "ghcr.io/mrworf/imap-smtp-mcp" in readme
     assert "github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp" in readme
-    assert "ghcr-badge.egpl.dev" not in readme
+    assert "ghcr.io/mrworf/imap-smtp-mcp/pkgs" not in readme
     assert "Docker image" in readme
     assert "ChatGPT-compatible remote MCP" in readme
     assert "encrypted" in readme
