@@ -20,6 +20,7 @@ from .write_tools import WriteMailboxService
 READ_SCOPE = "mail:read"
 SEND_SCOPE = "mail:send"
 WRITE_SCOPE = "mail:write"
+APP_DISPLAY_NAME = "Personal IMAP/SMTP Mail Connector"
 
 TOOL_SCOPES = {
     "list_folders": (READ_SCOPE,),
@@ -386,13 +387,13 @@ class MailToolController:
         self.send_service = SendEmailService(self.smtp_adapter, self.imap_adapter, config)
         self.write_service = WriteMailboxService(self.imap_adapter, config)
 
-    def list_tools(self) -> list[dict[str, Any]]:
+    def list_tools(self, credentials: MailCredentials | None = None) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
         for name, schema in TOOL_SCHEMAS.items():
             tools.append(
                 {
                     "name": name,
-                    "description": _description_for(name, self.config),
+                    "description": _description_for(name, self.config, credentials),
                     "inputSchema": _schema_for(name, schema, self.config),
                     "outputSchema": OUTPUT_SCHEMAS[name],
                     "annotations": _annotations_for(name),
@@ -564,7 +565,16 @@ def _attachment_policy_text(config: AppConfig) -> str:
     return f"Attachment retrieval returns base64 file bytes for one allowed attachment. Maximum decoded size is {policy.max_bytes} bytes. {_attachment_blocklist_text(config)}"
 
 
-def _description_for(name: str, config: AppConfig | None = None) -> str:
+def _mailbox_routing_text(credentials: MailCredentials | None) -> str:
+    if credentials is not None and credentials.sender_email:
+        sender = credentials.sender_email
+        if credentials.sender_display_name:
+            sender = f"{credentials.sender_display_name} <{credentials.sender_email}>"
+        return f"Use this with the authenticated {APP_DISPLAY_NAME} mailbox for {sender}."
+    return f"Use this with the authenticated {APP_DISPLAY_NAME} mailbox."
+
+
+def _description_for(name: str, config: AppConfig | None = None, credentials: MailCredentials | None = None) -> str:
     descriptions = {
         "list_folders": "List mailbox folders for the authenticated mail account.",
         "search_emails": "Search emails in a folder and return matching IMAP UIDs.",
@@ -583,12 +593,13 @@ def _description_for(name: str, config: AppConfig | None = None) -> str:
         "rename_folder": "Rename an IMAP folder.",
         "delete_folder": "Delete an IMAP folder using the server's default IMAP DELETE behavior.",
     }
+    routing_text = _mailbox_routing_text(credentials)
     if name == "get_email_attachment" and config is not None:
-        return f"{descriptions[name]} {_attachment_policy_text(config)}"
+        return f"{descriptions[name]} {routing_text} {_attachment_policy_text(config)}"
     if name == "send_email" and config is not None:
         policy = config.attachment_policy
-        return f"{descriptions[name]} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
-    return descriptions[name]
+        return f"{descriptions[name]} {routing_text} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
+    return f"{descriptions[name]} {routing_text}"
 
 
 def _annotations_for(name: str) -> dict[str, Any]:

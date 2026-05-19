@@ -169,10 +169,35 @@ def test_send_tool_schema_documents_attachment_limits(controller_env, tmp_path) 
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
     send_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_email")
 
+    assert "Personal IMAP/SMTP Mail Connector" in send_tool["description"]
     assert "10 attachments" in send_tool["description"]
     assert "1048576 decoded bytes" in send_tool["description"]
     assert "base64" in send_tool["inputSchema"]["properties"]["attachments"]["description"]
     assert send_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
+
+
+def test_tool_descriptions_include_sender_identity_without_backend_usernames(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+
+    read_tool = next(tool for tool in controller.list_tools(_credentials()) if tool["name"] == "read_email")
+
+    assert "Personal IMAP/SMTP Mail Connector" in read_tool["description"]
+    assert "Test Sender <sender@example.com>" in read_tool["description"]
+    assert "imap-user" not in read_tool["description"]
+    assert "smtp-user" not in read_tool["description"]
+
+
+def test_tool_descriptions_without_sender_identity_do_not_render_none(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+
+    read_tool = next(tool for tool in controller.list_tools(_legacy_credentials()) if tool["name"] == "read_email")
+
+    assert "Personal IMAP/SMTP Mail Connector" in read_tool["description"]
+    assert "None" not in read_tool["description"]
+    assert "imap-user" not in read_tool["description"]
+    assert "smtp-user" not in read_tool["description"]
 
 
 def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_path) -> None:

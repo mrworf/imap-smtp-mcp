@@ -19,7 +19,7 @@ from .audit import AuditEvent, AuditLogger
 from .config import AppConfig, ConfigError, load_config
 from .errors import MCPError
 from .oauth import OAuthClient, OAuthError, OAuthService
-from .tool_controller import TOOL_SCOPES, MailToolController
+from .tool_controller import APP_DISPLAY_NAME, TOOL_SCOPES, MailToolController
 
 
 JSON = "application/json; charset=utf-8"
@@ -209,12 +209,14 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         request_id = str(payload.get("id", ""))
         method = payload.get("method")
         if method == "initialize":
-            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "imap-smtp-mcp", "version": "0.1.0"}, "capabilities": {"tools": {}}}})
+            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": APP_DISPLAY_NAME, "version": "0.1.0"}, "capabilities": {"tools": {}}}})
             return
         if method == "tools/list":
-            if not self._require_bearer((), request_id):
+            auth = self._require_bearer((), request_id)
+            if not auth:
                 return
-            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"tools": self.server.tool_controller.list_tools()}})
+            _, credentials = auth
+            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"tools": self.server.tool_controller.list_tools(credentials)}})
             return
         if method == "tools/call":
             params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
@@ -435,7 +437,7 @@ def _login_form(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Authorize IMAP/SMTP MCP</title>
+<title>Authorize {APP_DISPLAY_NAME}</title>
 <style>
 :root {{
   color-scheme: light;
@@ -617,8 +619,8 @@ button:hover {{
 <main>
 <section class="panel" aria-labelledby="authorize-title">
 <div class="intro">
-<h1 id="authorize-title">Authorize IMAP/SMTP MCP</h1>
-<p class="description">IMAP/SMTP MCP is a self-hosted mail connector that lets authorized MCP clients use your configured IMAP and SMTP account to list folders, search and read messages, send mail, and manage mailbox items according to the scopes you grant.</p>
+<h1 id="authorize-title">Authorize {APP_DISPLAY_NAME}</h1>
+<p class="description">{APP_DISPLAY_NAME} is a self-hosted mail connector that lets authorized MCP clients use your configured IMAP and SMTP account to list folders, search and read messages, send mail, and manage mailbox items according to the scopes you grant.</p>
 <p><a class="repo-link" href="https://github.com/mrworf/imap-smtp-mcp" target="_blank" rel="noopener noreferrer">Read more on GitHub</a></p>
 <div class="client-details" aria-label="OAuth client details">
 <div class="detail-row"><strong>Application</strong><span>{html.escape(client.client_name)}</span></div>
@@ -814,7 +816,7 @@ def main() -> None:
     except (ConfigError, StartupError) as exc:
         print(f"Startup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    print(f"Serving IMAP/SMTP MCP on {server.config.server.host}:{server.config.server.port}", flush=True)
+    print(f"Serving {APP_DISPLAY_NAME} on {server.config.server.host}:{server.config.server.port}", flush=True)
     server.serve_forever()
 
 

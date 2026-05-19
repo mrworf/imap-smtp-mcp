@@ -19,8 +19,11 @@ from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, TOOL_SCHEMAS
 
 
 class FakeController:
-    def list_tools(self):
-        return [{"name": name, "inputSchema": schema, "outputSchema": OUTPUT_SCHEMAS[name]} for name, schema in TOOL_SCHEMAS.items()]
+    def list_tools(self, credentials=None):
+        sender = ""
+        if credentials is not None and credentials.sender_email:
+            sender = f" for {credentials.sender_display_name} <{credentials.sender_email}>"
+        return [{"name": name, "description": f"Fake tool{sender}", "inputSchema": schema, "outputSchema": OUTPUT_SCHEMAS[name]} for name, schema in TOOL_SCHEMAS.items()]
 
     def call_tool(self, name, arguments, credentials, *, request_id, subject):
         return {"tool": name, "imap_username": credentials.imap_username, "smtp_username": credentials.smtp_username}
@@ -238,6 +241,14 @@ def test_health_ready_and_metadata(http_server):
     assert json.loads(raw)["resource"] == "http://127.0.0.1:8000"
 
 
+def test_mcp_initialize_uses_connector_display_name(http_server):
+    base_url, _ = http_server
+    status, _, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "init-1", "method": "initialize"})
+
+    assert status == 200
+    assert json.loads(raw)["result"]["serverInfo"]["name"] == "Personal IMAP/SMTP Mail Connector"
+
+
 def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     base_url, _ = http_server
     status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
@@ -291,7 +302,8 @@ def test_authorize_form_identifies_app_and_groups_credentials(http_server):
 
     assert status == 200
     assert "<h1" in html
-    assert "Authorize IMAP/SMTP MCP" in html
+    assert "Authorize Personal IMAP/SMTP Mail Connector" in html
+    assert "Personal IMAP/SMTP Mail Connector is a self-hosted mail connector" in html
     assert "lets authorized MCP clients use your configured IMAP and SMTP account" in html
     assert 'href="https://github.com/mrworf/imap-smtp-mcp"' in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
@@ -656,6 +668,8 @@ def test_mcp_requires_bearer_and_lists_tools(http_server):
     tools = json.loads(raw)["result"]["tools"]
     assert any(tool["name"] == "read_email" for tool in tools)
     assert any(tool["name"] == "get_sender_identity" for tool in tools)
+    read_email = next(tool for tool in tools if tool["name"] == "read_email")
+    assert "Test Sender <sender@example.com>" in read_email["description"]
     create_folder = next(tool for tool in tools if tool["name"] == "create_folder")
     assert create_folder["inputSchema"]["required"] == ["folder"]
     assert create_folder["outputSchema"]["required"] == ["created"]

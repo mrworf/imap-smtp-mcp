@@ -1,11 +1,12 @@
-# IMAP/SMTP MCP
+# Personal IMAP/SMTP Mail Connector
 
 [![CI](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
 
-`imap-smtp-mcp` is a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
+`imap-smtp-mcp` advertises itself to ChatGPT as Personal IMAP/SMTP Mail Connector, a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
 
 The intended production shape is a Docker container behind a public HTTPS reverse proxy. ChatGPT sees only the public `/sse` endpoint and the OAuth metadata endpoints; IMAP and SMTP credentials are entered during OAuth authorization and are never supplied as tool arguments.
+When Gmail or another mail connector is also enabled, prompt ChatGPT with “use Personal IMAP/SMTP Mail Connector, not Gmail” to disambiguate this mailbox.
 
 ## What It Provides
 
