@@ -8,7 +8,10 @@
 `imap-smtp-mcp` advertises itself to ChatGPT as Personal Email Connector, a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
 
 The intended production shape is a Docker container behind a public HTTPS reverse proxy. ChatGPT sees only the public `/sse` endpoint and the OAuth metadata endpoints; IMAP and SMTP credentials are entered during OAuth authorization and are never supplied as tool arguments.
-ChatGPT may default to Gmail for generic email prompts when Gmail is available. In an empty chat, set a ChatGPT memory or preference with `remember that I don't use gmail and instead use the Personal Email Connector` so future email prompts are more likely to route here. This is not a server-side guarantee. For sensitive or ambiguous requests, still include `use Personal Email Connector, not Gmail` in the prompt.
+
+### Quirk with ChatGPT
+
+ChatGPT tends to default to Gmail for generic email prompts regardless if you have Gmail available or not. In an empty chat, set a ChatGPT memory or preference with `remember that I don't use gmail and instead use the Personal Email Connector` so future email prompts are more likely to route here. This is not a server-side guarantee. For sensitive or ambiguous requests, still include `use Personal Email Connector, not Gmail` in the prompt, or the `@Personal Email Connector` reference.
 
 ## What It Provides
 
