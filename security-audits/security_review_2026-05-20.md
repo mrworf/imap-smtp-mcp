@@ -15,7 +15,7 @@
 
 The implementation has strong baseline controls for a self-hosted mail MCP server: OAuth + PKCE is implemented, bearer tokens are checked before tool calls, mailbox credentials are encrypted in SQLite, refresh tokens are hashed and rotated, IMAP/SMTP credentials remain separate, action flags are enforced before adapter calls, dangerous attachments are blocked by policy, and the Docker runtime is meaningfully hardened.
 
-I did not find a confirmed unauthenticated remote path to mailbox credential disclosure or cross-user mailbox access. The most important remaining risks are deployment and abuse edges: weak OAuth signing guardrails combine poorly with bearer scopes being trusted only from the JWT, Dynamic Client Registration still has no durable client quota, direct HTTP exposure lacks request read timeouts, sender identity is still accepted at OAuth time without SMTP/domain binding, and default failure audit metadata can persist sensitive search terms.
+I did not find a confirmed unauthenticated remote path to mailbox credential disclosure or cross-user mailbox access. The most important remaining risks are deployment and abuse edges: weak OAuth signing guardrails combine poorly with bearer scopes being trusted only from the JWT, Dynamic Client Registration still has no durable client quota, sender identity is still accepted at OAuth time without SMTP/domain binding, and default failure audit metadata can persist sensitive search terms. A direct or weakly proxied HTTP deployment also lacks request read timeouts, but this is a lower-severity hardening concern because direct public HTTP is not an endorsed production topology.
 
 ## Scope and Methodology
 
@@ -34,7 +34,7 @@ I reviewed the HTTP entry points, OAuth service and SQLite store, JWT signing an
 |----|----------|------|------------|-------|--------|
 | SEC-001 | Medium | 6.4 | High | Weak OAuth signing guardrails plus missing session-scope check can allow token scope/TTL escalation | Open |
 | SEC-002 | Medium | 5.3 | Confirmed | Dynamic Client Registration persists clients without a durable quota | Open |
-| SEC-003 | Medium | 5.3 | High | Direct HTTP exposure has no request read timeout | Open |
+| SEC-003 | Low | 3.7 | High | Direct or poorly proxied HTTP exposure has no request read timeout | Open |
 | SEC-004 | Medium | 4.3 | Confirmed, deployment-dependent impact | Sender identity is not bound to SMTP account or configured domain | Open |
 | SEC-005 | Low | 3.0 | Confirmed | Failure audit metadata can log sensitive search terms outside debug mode | Open |
 
@@ -122,10 +122,10 @@ Add a durable cap for registered clients, stale-client cleanup, or a registratio
 
 Add tests that registration returns a deterministic OAuth error after the persistent cap is reached, and that cleanup does not delete clients tied to active sessions.
 
-### SEC-003: Direct HTTP exposure has no request read timeout
+### SEC-003: Direct or poorly proxied HTTP exposure has no request read timeout
 
-- **Severity:** Medium
-- **CVSS v3.1:** 5.3 `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L`
+- **Severity:** Low
+- **CVSS v3.1:** 3.7 `CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L`
 - **Confidence:** High
 - **Status:** Open
 - **Affected components:** `src/imap_smtp_mcp/server.py`
@@ -136,7 +136,7 @@ The server is built on `ThreadingHTTPServer` (`server.py:44-63`). Request bodies
 
 #### Preconditions
 
-The Python HTTP server is exposed directly to untrusted clients or the reverse proxy does not enforce upstream/client timeouts and connection limits.
+The Python HTTP server is exposed directly to untrusted clients, or a reverse proxy is deployed without effective client, request, and upstream timeouts. This is not the recommended production posture; the documented production shape places the service behind a public HTTPS reverse proxy.
 
 #### Exploit Scenario
 
@@ -148,11 +148,11 @@ Run only against a local development server. Open a small number of connections 
 
 #### Impact
 
-Availability impact for direct or weakly proxied deployments. The recommended reverse-proxy deployment reduces this risk if configured with request, upstream, and connection timeouts.
+Availability impact for direct or weakly proxied deployments. The recommended reverse-proxy deployment substantially reduces this risk when configured with request, upstream, and connection timeouts.
 
 #### CVSS Rationale
 
-This is unauthenticated and network reachable in direct deployments, but it affects availability only and is mitigated by a correctly configured edge proxy.
+This is unauthenticated and network reachable only in direct or poorly proxied deployments. `AC:H` reflects that this requires a non-endorsed production topology or missing proxy timeout controls; impact is availability-only.
 
 #### Remediation
 
@@ -250,7 +250,7 @@ SEC-001 is the main chain. Known placeholder or dev signing keys make JWT forger
 
 ### CHAIN-002: Public DCR growth plus threaded server resource exhaustion
 
-SEC-002 and SEC-003 can combine into an availability issue for public deployments without edge controls: repeated registration grows durable state while slow or incomplete HTTP bodies consume handler threads. This remains availability-only; I did not find a path from this chain to credential disclosure or authorization bypass.
+SEC-002 and SEC-003 can combine into an availability issue for deployments without effective edge controls: repeated registration grows durable state while slow or incomplete HTTP bodies consume handler threads. In the documented production topology behind a properly configured HTTPS reverse proxy, SEC-003 is substantially mitigated. This remains availability-only; I did not find a path from this chain to credential disclosure or authorization bypass.
 
 ## Hardening Recommendations
 
