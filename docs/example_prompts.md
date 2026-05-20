@@ -4,6 +4,16 @@ These prompts are written for ChatGPT when Personal Email Connector is enabled. 
 
 If Gmail or another mail connector is enabled in the same chat, include “use Personal Email Connector, not Gmail” in your prompt so ChatGPT routes the request to this IMAP/SMTP mailbox.
 
+## Default Connector Preference
+
+ChatGPT may default to Gmail for generic email prompts when Gmail is available. In an empty chat, set a ChatGPT memory or preference with:
+
+```text
+remember that I don't use gmail and instead use the Personal Email Connector
+```
+
+This is a routing tip for ChatGPT, not a server-side guarantee. For sensitive or ambiguous requests, still name Personal Email Connector explicitly and include “use Personal Email Connector, not Gmail” in the prompt.
+
 ## Common Read Prompts
 
 - Use Personal Email Connector, not Gmail, and list my mail folders.

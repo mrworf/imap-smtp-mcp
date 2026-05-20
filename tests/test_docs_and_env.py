@@ -114,6 +114,22 @@ def test_readme_describes_project_and_links_docs() -> None:
     assert "IMPLEMENTATION_PLAN.md" not in readme
 
 
+def test_docs_cover_chatgpt_default_email_connector_tip() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    prompts = (ROOT / "docs/example_prompts.md").read_text(encoding="utf-8")
+    memory_tip = (
+        "remember that I don't use gmail and instead use the Personal Email Connector"
+    )
+
+    for text in (readme, prompts):
+        assert memory_tip in text
+        assert "empty chat" in text
+        assert "use Personal Email Connector, not Gmail" in text
+        assert "disable Gmail" not in text
+        assert "not a server-side guarantee" in text
+        assert "force ChatGPT" not in text
+
+
 def test_docs_use_current_app_name() -> None:
     docs = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
     for path in docs:
