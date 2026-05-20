@@ -2,6 +2,8 @@
 
 This suite verifies Personal Email Connector compatibility against a dedicated IMAP/SMTP mailbox.
 
+After changing connector metadata such as `MCP_APP_DISPLAY_NAME`, descriptions, website, privacy policy, or terms URLs, refresh or reconnect the app in ChatGPT Developer Mode before relying on ChatGPT's app picker or tool-routing behavior. ChatGPT may cache app metadata between connector updates.
+
 ## Destructive test warning
 This suite creates, copies, moves, marks, trashes, permanently deletes, and expunges messages. Run it only against a dedicated test mailbox.
 

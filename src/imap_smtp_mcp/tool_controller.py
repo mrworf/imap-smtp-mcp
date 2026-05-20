@@ -183,15 +183,15 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["query"],
         "additionalProperties": False,
         "properties": {
-            "query": {"type": "string", "minLength": 1},
-            "folder": {"type": "string", "default": "INBOX"},
-            "from": {"type": "string", "minLength": 1},
-            "to": {"type": "string", "minLength": 1},
-            "subject": {"type": "string", "minLength": 1},
-            "since": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
-            "before": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
-            "unread": {"type": "boolean"},
-            "limit": {"type": "integer", "default": 25},
+            "query": {"type": "string", "minLength": 1, "description": "Text to search across message text, subject, and body."},
+            "folder": {"type": "string", "default": "INBOX", "description": "Mailbox folder to search. Defaults to INBOX."},
+            "from": {"type": "string", "minLength": 1, "description": "Optional sender filter."},
+            "to": {"type": "string", "minLength": 1, "description": "Optional recipient filter."},
+            "subject": {"type": "string", "minLength": 1, "description": "Optional subject filter."},
+            "since": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Optional inclusive message date lower bound in YYYY-MM-DD format."},
+            "before": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Optional exclusive message date upper bound in YYYY-MM-DD format."},
+            "unread": {"type": "boolean", "description": "When true, only return unread messages."},
+            "limit": {"type": "integer", "default": 25, "description": "Maximum matching IMAP UIDs to return."},
         },
     },
     "list_emails": {
@@ -203,15 +203,19 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "folder": {"type": "string", "default": "INBOX"},
-            "offset": {"type": "integer", "default": 0},
-            "limit": {"type": "integer", "default": 20},
+            "folder": {"type": "string", "default": "INBOX", "description": "Mailbox folder to list. Defaults to INBOX."},
+            "offset": {"type": "integer", "default": 0, "description": "Zero-based offset into the recent-message listing."},
+            "limit": {"type": "integer", "default": 20, "description": "Maximum number of message summaries to return."},
         },
     },
     "read_email": {
         "type": "object",
         "required": ["folder", "uid"],
-        "properties": {"folder": {"type": "string"}, "uid": {"type": "string"}, "max_chars": {"type": "integer", "default": 20000}},
+        "properties": {
+            "folder": {"type": "string", "description": "Mailbox folder containing the message."},
+            "uid": {"type": "string", "description": "Single IMAP UID of the message to read."},
+            "max_chars": {"type": "integer", "default": 20000, "description": "Maximum body characters to return before truncation."},
+        },
     },
     "get_email_attachment": {
         "type": "object",
@@ -228,9 +232,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "type": "object",
         "required": ["to_addresses", "subject", "body_text"],
         "properties": {
-            "to_addresses": {"type": "array", "items": {"type": "string"}},
-            "subject": {"type": "string"},
-            "body_text": {"type": "string"},
+            "to_addresses": {"type": "array", "items": {"type": "string"}, "description": "Recipient email addresses."},
+            "subject": {"type": "string", "description": "Message subject."},
+            "body_text": {"type": "string", "description": "Plain-text email body."},
             "attachments": {
                 "type": "array",
                 "items": {
@@ -238,23 +242,23 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "required": ["filename", "content_type", "content_base64"],
                     "additionalProperties": False,
                     "properties": {
-                        "filename": {"type": "string"},
-                        "content_type": {"type": "string"},
-                        "content_base64": {"type": "string"},
+                        "filename": {"type": "string", "description": "Attachment filename without path separators."},
+                        "content_type": {"type": "string", "description": "Attachment MIME content type."},
+                        "content_base64": {"type": "string", "description": "Base64-encoded attachment bytes."},
                     },
                 },
                 "default": [],
             },
-            "append_to_sent": {"type": "boolean", "default": True},
+            "append_to_sent": {"type": "boolean", "default": True, "description": "When true, append the sent message to the configured sent folder after SMTP delivery."},
         },
     },
     "send_mail": {
         "type": "object",
         "required": ["to_addresses", "subject", "body_text"],
         "properties": {
-            "to_addresses": {"type": "array", "items": {"type": "string"}},
-            "subject": {"type": "string"},
-            "body_text": {"type": "string"},
+            "to_addresses": {"type": "array", "items": {"type": "string"}, "description": "Recipient email addresses."},
+            "subject": {"type": "string", "description": "Message subject."},
+            "body_text": {"type": "string", "description": "Plain-text email body."},
             "attachments": {
                 "type": "array",
                 "items": {
@@ -262,14 +266,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "required": ["filename", "content_type", "content_base64"],
                     "additionalProperties": False,
                     "properties": {
-                        "filename": {"type": "string"},
-                        "content_type": {"type": "string"},
-                        "content_base64": {"type": "string"},
+                        "filename": {"type": "string", "description": "Attachment filename without path separators."},
+                        "content_type": {"type": "string", "description": "Attachment MIME content type."},
+                        "content_base64": {"type": "string", "description": "Base64-encoded attachment bytes."},
                     },
                 },
                 "default": [],
             },
-            "append_to_sent": {"type": "boolean", "default": True},
+            "append_to_sent": {"type": "boolean", "default": True, "description": "When true, append the sent message to the configured sent folder after SMTP delivery."},
         },
     },
     "mark_read_state": {
@@ -717,25 +721,25 @@ def _mailbox_routing_text(config: AppConfig | None, credentials: MailCredentials
 
 def _description_for(name: str, config: AppConfig | None = None, credentials: MailCredentials | None = None) -> str:
     descriptions = {
-        "list_folders": "List mailbox folders for the authenticated mail account.",
-        "search_emails": "Search emails in a folder and return matching IMAP UIDs.",
-        "search_mail": "Search mail with simple query, sender, recipient, subject, date, and unread filters and return matching IMAP UIDs.",
-        "list_emails": "List email summaries in a folder with pagination.",
-        "get_recent_mail": "Get recent mail summaries in a folder with pagination.",
-        "read_email": "Read one email by IMAP UID with bounded body text and attachment metadata.",
-        "get_email_attachment": "Retrieve one allowed email attachment by attachment_id as base64 content.",
-        "get_sender_identity": "Show the captured display name and outbound email address used for sent mail.",
-        "send_email": "Send an email using the authenticated SMTP credentials.",
-        "send_mail": "Send mail using the authenticated SMTP credentials.",
-        "mark_read_state": "Mark an email read or unread.",
-        "move_email": "Move an email from one folder to another.",
-        "copy_email": "Copy an email from one folder to another.",
-        "delete_email_permanent": "Permanently delete an email and expunge it.",
-        "move_to_trash": "Move an email to the configured trash folder.",
-        "empty_trash": "Permanently delete all mail in the configured trash folder.",
-        "create_folder": "Create an IMAP folder.",
-        "rename_folder": "Rename an IMAP folder.",
-        "delete_folder": "Delete an IMAP folder using the server's default IMAP DELETE behavior.",
+        "list_folders": "Use this when the user wants to see mailbox folders for the authenticated email account.",
+        "search_emails": "Use this when the user needs structured IMAP search in a specific folder and wants matching IMAP UIDs.",
+        "search_mail": "Use this when the user asks to find email by text, sender, recipient, subject, date, or unread state.",
+        "list_emails": "Use this when the user wants paginated email summaries from a specific folder.",
+        "get_recent_mail": "Use this when the user asks for recent email summaries, usually from INBOX.",
+        "read_email": "Use this when the user wants to read one email by IMAP UID, including bounded body text and attachment metadata.",
+        "get_email_attachment": "Use this when the user asks to retrieve one allowed email attachment as base64 content.",
+        "get_sender_identity": "Use this when the user asks which display name and email address this connector uses for outgoing mail.",
+        "send_email": "Use this when the user explicitly asks to send an email through the authenticated SMTP account.",
+        "send_mail": "Use this when the user explicitly asks to send mail through the authenticated SMTP account.",
+        "mark_read_state": "Use this when the user asks to mark an email read or unread.",
+        "move_email": "Use this when the user asks to move an email from one folder to another.",
+        "copy_email": "Use this when the user asks to copy an email from one folder to another.",
+        "delete_email_permanent": "Use this when the user explicitly asks to permanently delete and expunge an email.",
+        "move_to_trash": "Use this when the user asks to move an email to the configured trash folder.",
+        "empty_trash": "Use this when the user explicitly asks to permanently delete all mail in the configured trash folder.",
+        "create_folder": "Use this when the user asks to create an IMAP folder.",
+        "rename_folder": "Use this when the user asks to rename an IMAP folder.",
+        "delete_folder": "Use this when the user asks to delete an IMAP folder using the server's default IMAP DELETE behavior.",
     }
     routing_text = _mailbox_routing_text(config, credentials)
     if name == "get_email_attachment" and config is not None:
@@ -748,5 +752,9 @@ def _description_for(name: str, config: AppConfig | None = None, credentials: Ma
 
 def _annotations_for(name: str) -> dict[str, Any]:
     if name in {"send_email", "send_mail", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
-        return {"readOnlyHint": False, "destructiveHint": name in {"delete_email_permanent", "empty_trash", "delete_folder"}}
-    return {"readOnlyHint": True, "destructiveHint": False}
+        return {
+            "readOnlyHint": False,
+            "destructiveHint": name in {"send_email", "send_mail", "delete_email_permanent", "empty_trash", "delete_folder"},
+            "openWorldHint": name in {"send_email", "send_mail"},
+        }
+    return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}

@@ -140,6 +140,7 @@ def test_folder_tool_schemas_scopes_and_annotations() -> None:
     assert TOOL_SCHEMAS["rename_folder"]["required"] == ["source_folder", "target_folder"]
     assert TOOL_SCHEMAS["delete_folder"]["required"] == ["folder"]
     assert _annotations_for("create_folder")["readOnlyHint"] is False
+    assert _annotations_for("create_folder")["openWorldHint"] is False
     assert _annotations_for("rename_folder")["destructiveHint"] is False
     assert _annotations_for("delete_folder")["destructiveHint"] is True
 
@@ -156,7 +157,7 @@ def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:
 def test_sender_identity_tool_schema_scope_and_annotations() -> None:
     assert TOOL_SCOPES["get_sender_identity"] == (SEND_SCOPE,)
     assert TOOL_SCHEMAS["get_sender_identity"] == {"type": "object", "properties": {}, "additionalProperties": False}
-    assert _annotations_for("get_sender_identity") == {"readOnlyHint": True, "destructiveHint": False}
+    assert _annotations_for("get_sender_identity") == {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
 
 
 def test_mail_alias_tool_schemas_scopes_and_annotations() -> None:
@@ -165,11 +166,15 @@ def test_mail_alias_tool_schemas_scopes_and_annotations() -> None:
     assert TOOL_SCOPES["send_mail"] == (SEND_SCOPE,)
     assert TOOL_SCHEMAS["search_mail"]["required"] == ["query"]
     assert TOOL_SCHEMAS["search_mail"]["properties"]["folder"]["default"] == "INBOX"
+    assert "description" in TOOL_SCHEMAS["search_mail"]["properties"]["query"]
     assert TOOL_SCHEMAS["get_recent_mail"]["properties"]["limit"]["default"] == 20
+    assert "description" in TOOL_SCHEMAS["get_recent_mail"]["properties"]["limit"]
     assert TOOL_SCHEMAS["send_mail"]["required"] == TOOL_SCHEMAS["send_email"]["required"]
-    assert _annotations_for("search_mail") == {"readOnlyHint": True, "destructiveHint": False}
-    assert _annotations_for("get_recent_mail") == {"readOnlyHint": True, "destructiveHint": False}
-    assert _annotations_for("send_mail") == {"readOnlyHint": False, "destructiveHint": False}
+    assert "description" in TOOL_SCHEMAS["send_mail"]["properties"]["to_addresses"]
+    assert "description" in TOOL_SCHEMAS["send_mail"]["properties"]["attachments"]["items"]["properties"]["content_base64"]
+    assert _annotations_for("search_mail") == {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+    assert _annotations_for("get_recent_mail") == {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+    assert _annotations_for("send_mail") == {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}
 
 
 def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_path) -> None:
@@ -180,7 +185,7 @@ def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_p
 
     assert TOOL_SCOPES["get_email_attachment"] == (READ_SCOPE,)
     assert TOOL_SCHEMAS["get_email_attachment"]["required"] == ["folder", "uid", "attachment_id"]
-    assert _annotations_for("get_email_attachment") == {"readOnlyHint": True, "destructiveHint": False}
+    assert _annotations_for("get_email_attachment") == {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
     assert attachment_tool["outputSchema"]["required"] == ["filename", "content_type", "size_bytes", "content_base64"]
     assert "base64" in attachment_tool["description"]
     assert "1048576 bytes" in attachment_tool["description"]
@@ -193,13 +198,24 @@ def test_send_tool_schema_documents_attachment_limits(controller_env, tmp_path) 
     send_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_email")
     send_mail_tool = next(tool for tool in controller.list_tools() if tool["name"] == "send_mail")
 
+    assert send_tool["description"].startswith("Use this when")
     assert "Personal Email Connector" in send_tool["description"]
     assert "10 attachments" in send_tool["description"]
     assert "1048576 decoded bytes" in send_tool["description"]
     assert "base64" in send_tool["inputSchema"]["properties"]["attachments"]["description"]
+    assert "description" in send_tool["inputSchema"]["properties"]["attachments"]["items"]["properties"]["content_base64"]
     assert send_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
+    assert send_mail_tool["description"].startswith("Use this when")
     assert "10 attachments" in send_mail_tool["description"]
     assert send_mail_tool["inputSchema"]["properties"]["attachments"]["maxItems"] == 10
+
+
+def test_read_tool_schema_documents_high_impact_parameters() -> None:
+    schema = TOOL_SCHEMAS["read_email"]
+
+    assert schema["properties"]["folder"]["description"]
+    assert schema["properties"]["uid"]["description"]
+    assert schema["properties"]["max_chars"]["description"]
 
 
 def test_tool_descriptions_include_sender_identity_without_backend_usernames(controller_env, tmp_path) -> None:
