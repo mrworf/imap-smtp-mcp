@@ -433,6 +433,18 @@ def _login_form(
     action = f"/oauth/authorize?{html.escape(raw_query, quote=True)}"
     domain_json = json.dumps(smtp_from_domain or "")
     redirect_origin = _uri_origin(redirect_uri)
+    redaction_sentence = (
+        " Logs are redacted by default and do not intentionally store message contents."
+        if not debug_unredacted_logs
+        else ""
+    )
+    mailbox_access_notice = (
+        '<div class="info-box" role="note">'
+        "This app can access and modify your mailbox through IMAP and SMTP when you ask ChatGPT to do so. "
+        "It may read, search, send, move, delete, or permanently delete emails depending on the action you request."
+        f"{redaction_sentence}"
+        "</div>"
+    )
     debug_warning = (
         '<div class="warning" role="alert"><strong>Debug logging is enabled.</strong> Email subjects, bodies, tool arguments, and tool results may be written to backend audit logs. Do not use this mode for production mailboxes.</div>'
         if debug_unredacted_logs
@@ -531,6 +543,14 @@ p {{
 }}
 .detail-row strong {{
   color: var(--text);
+}}
+.info-box {{
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
 }}
 .warning {{
   margin-top: 20px;
@@ -636,6 +656,7 @@ button:hover {{
 <div class="detail-row"><strong>Resource</strong><span>{html.escape(resource)}</span></div>
 <div class="detail-row"><strong>Scopes</strong><span>{html.escape(", ".join(scopes))}</span></div>
 </div>
+{mailbox_access_notice}
 {debug_warning}
 </div>
 <form method="post" action="{action}">

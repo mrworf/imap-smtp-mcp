@@ -335,6 +335,10 @@ def test_authorize_form_identifies_app_and_groups_credentials(http_server):
     assert "https://chatgpt.com/connector/oauth/cb" in html
     assert "http://127.0.0.1:8000" in html
     assert "mail:read, mail:send, mail:write" in html
+    assert 'class="info-box" role="note"' in html
+    assert "This app can access and modify your mailbox through IMAP and SMTP when you ask ChatGPT to do so." in html
+    assert "It may read, search, send, move, delete, or permanently delete emails depending on the action you request." in html
+    assert "Logs are redacted by default and do not intentionally store message contents." in html
     assert "ChatGPT is requesting" not in html
     assert "<legend>IMAP credentials</legend>" in html
     assert "<legend>SMTP credentials</legend>" in html
@@ -414,6 +418,9 @@ def test_authorize_form_suggests_sender_email_from_smtp_domain(server_env, monke
         assert 'const smtpFromDomain = "example.com";' in html
         assert 'username.includes("@")' in html
         assert '${username}@${smtpFromDomain}' in html
+        assert "This app can access and modify your mailbox through IMAP and SMTP when you ask ChatGPT to do so." in html
+        assert "It may read, search, send, move, delete, or permanently delete emails depending on the action you request." in html
+        assert "Logs are redacted by default and do not intentionally store message contents." not in html
         assert "Debug logging is enabled" in html
         assert "Email subjects, bodies, tool arguments, and tool results may be written" in html
     finally:
