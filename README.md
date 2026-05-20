@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="imap-smtp-mcp.png" alt="Personal Email Connector logo" width="160">
-</p>
-
 # Personal Email Connector
+
+<img src="imap-smtp-mcp.png" alt="Personal Email Connector logo" width="25%" align="right">
 
 [![CI](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
