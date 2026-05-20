@@ -330,6 +330,23 @@ def test_mail_aliases_dispatch_to_existing_read_services(controller_env, tmp_pat
     ]
 
 
+def test_get_recent_mail_defaults_to_inbox_first_recent_page(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_read = FakeReadService()
+    controller.read_service = fake_read
+
+    assert controller.call_tool(
+        "get_recent_mail",
+        {},
+        _credentials(),
+        request_id="recent-mail-defaults",
+        subject="subject",
+    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+
+    assert fake_read.calls == [("list_emails", ("imap-user", "imap-pass", "INBOX", 0, 20))]
+
+
 def test_search_mail_rejects_invalid_inputs_before_read_service(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))

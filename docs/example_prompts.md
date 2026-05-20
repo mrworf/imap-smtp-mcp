@@ -16,7 +16,7 @@ If Gmail or another mail connector is enabled in the same chat, include “use P
 - Read the message with UID `<uid>` from `INBOX`, inspect its `attachments` metadata, and retrieve only the allowed attachment with `get_email_attachment` using its `attachment_id`.
 - Show the sender identity this connector will use for outgoing mail.
 
-`read_email` returns plain readable body text and attachment metadata. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned. Attachment bytes are retrieved separately with `get_email_attachment`; HTML and JavaScript attachments are blocked by default and reported in metadata instead of returned.
+`list_emails` and `get_recent_mail` return newest-first message summaries by mailbox order, with stable IMAP UIDs for follow-up reads or organize actions. `read_email` returns plain readable body text and attachment metadata. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned. Attachment bytes are retrieved separately with `get_email_attachment`; HTML and JavaScript attachments are blocked by default and reported in metadata instead of returned.
 
 ## Common Send And Organize Prompts
 

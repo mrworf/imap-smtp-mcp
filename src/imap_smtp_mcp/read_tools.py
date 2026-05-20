@@ -26,6 +26,8 @@ _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")
 _KEYWORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _UID_SET_RE = re.compile(r"^(\*|[1-9][0-9]*)(:(\*|[1-9][0-9]*))?(,(\*|[1-9][0-9]*)(:(\*|[1-9][0-9]*))?)*$")
+_FETCH_UID_RE = re.compile(rb"\bUID\s+([1-9][0-9]*)\b", re.IGNORECASE)
+_FETCH_SEQUENCE_RE = re.compile(rb"^([1-9][0-9]*)\b")
 _IMAP_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _STRING_CRITERIA = {
     "text": "TEXT",
@@ -101,6 +103,53 @@ class EmailAttachmentContent:
 
 def _decode_header_field(message: Message, field: str) -> str:
     return str(message.get(field, "")).strip()
+
+
+def _select_message_count(data: list[bytes]) -> int:
+    if not data or not data[0]:
+        return 0
+    try:
+        return int(data[0].decode("ascii"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BackendUnavailableError("IMAP select returned invalid message count") from exc
+
+
+def _fetch_metadata(value: object) -> bytes:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str):
+        return value.encode("ascii", errors="ignore")
+    return b""
+
+
+def _email_summaries_from_fetch(data: list[object]) -> tuple[EmailSummary, ...]:
+    records: list[tuple[int | None, EmailSummary]] = []
+    for item in data:
+        if not isinstance(item, tuple) or len(item) < 2 or not isinstance(item[1], bytes):
+            continue
+        metadata = _fetch_metadata(item[0])
+        uid_match = _FETCH_UID_RE.search(metadata)
+        if uid_match is None:
+            continue
+        sequence_match = _FETCH_SEQUENCE_RE.match(metadata)
+        sequence = int(sequence_match.group(1)) if sequence_match else None
+        msg = message_from_bytes(item[1])
+        records.append(
+            (
+                sequence,
+                EmailSummary(
+                    uid=uid_match.group(1).decode("ascii"),
+                    subject=_decode_header_field(msg, "Subject"),
+                    from_address=_decode_header_field(msg, "From"),
+                    date=_decode_header_field(msg, "Date"),
+                ),
+            )
+        )
+
+    if all(sequence is not None for sequence, _summary in records):
+        records.sort(key=lambda record: record[0] or 0, reverse=True)
+        return tuple(summary for _sequence, summary in records)
+    return tuple(summary for _sequence, summary in reversed(records))
 
 
 def _validate_nonempty_single_line(name: str, value: str) -> str:
@@ -447,27 +496,20 @@ class ReadOnlyMailboxService:
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
         try:
-            status, _ = client.select(encode_mailbox_name(folder_name))
+            status, select_data = client.select(encode_mailbox_name(folder_name))
             if status != "OK":
                 raise NotFoundError(f"Folder not found: {folder_name}")
+            message_count = _select_message_count(select_data)
+            if message_count == 0 or offset >= message_count:
+                return ()
 
-            status, ids = client.uid("search", None, "ALL")
+            end_sequence = message_count - offset
+            start_sequence = max(1, end_sequence - limit + 1)
+            sequence_set = f"{start_sequence}:{end_sequence}"
+            status, data = client.fetch(sequence_set, "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
             if status != "OK":
-                raise BackendUnavailableError("IMAP list failed", metadata={"imap_phase": "search", "folder": folder_name, "offset": str(offset), "limit": str(limit)})
-
-            all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
-            window = all_ids[offset : offset + limit]
-            out: list[EmailSummary] = []
-            for uid in window:
-                status, data = client.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-                if status != "OK" or not data or data[0] is None:
-                    continue
-                raw_header = data[0][1]
-                msg = message_from_bytes(raw_header)
-                out.append(
-                    EmailSummary(uid=uid, subject=_decode_header_field(msg, "Subject"), from_address=_decode_header_field(msg, "From"), date=_decode_header_field(msg, "Date"))
-                )
-            return tuple(out)
+                raise BackendUnavailableError("IMAP list failed", metadata={"imap_phase": "fetch", "folder": folder_name, "offset": str(offset), "limit": str(limit)})
+            return _email_summaries_from_fetch(data)
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
 

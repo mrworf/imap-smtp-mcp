@@ -13,6 +13,7 @@ from imap_smtp_mcp.tool_controller import TOOL_SCHEMAS
 class FakeMailboxClient:
     def __init__(self):
         self.uid_calls = []
+        self.fetch_calls = []
         self.selected_folders = []
         self.messages = {
             "1": self._build("Hello", "a@example.com", "b@example.com", "body one"),
@@ -118,8 +119,31 @@ class FakeMailboxClient:
     def select(self, folder):
         self.selected_folders.append(folder)
         if folder in {encode_mailbox_name("INBOX"), encode_mailbox_name("MCP Smoke Folder")}:
-            return ("OK", [b"2"])
+            return ("OK", [str(len(self.messages)).encode("ascii")])
         return ("NO", [b""])
+
+    def fetch(self, sequence_set, query):
+        self.fetch_calls.append((sequence_set, query))
+        start, end = (int(value) for value in sequence_set.split(":", 1))
+        out = []
+        for sequence in range(start, end + 1):
+            uid = str(sequence)
+            if uid not in self.messages:
+                continue
+            from email import message_from_bytes
+
+            original = message_from_bytes(self.messages[uid])
+            hdr = EmailMessage()
+            hdr["Subject"] = original["Subject"]
+            hdr["From"] = original["From"]
+            hdr["Date"] = original["Date"]
+            out.append(
+                (
+                    f"{sequence} (UID {uid} BODY[HEADER.FIELDS (SUBJECT FROM DATE)]".encode("ascii"),
+                    hdr.as_bytes(),
+                )
+            )
+        return ("OK", out)
 
     def uid(self, command, *args):
         self.uid_calls.append((command, args))
@@ -202,10 +226,48 @@ def test_readonly_tools_positive_flows(base_env):
 
     listed = service.list_emails("u", "p", "INBOX", offset=0, limit=2)
     assert len(listed) == 2
-    assert listed[0].subject == "Hello"
+    assert [email.uid for email in listed] == ["7", "6"]
 
     read = service.read_email("u", "p", "INBOX", "2")
     assert "Hello **world**" in read.body_text
+
+
+def test_list_emails_pages_newest_first_with_sequence_window(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    first_page = service.list_emails("u", "p", "INBOX", offset=0, limit=2)
+    second_page = service.list_emails("u", "p", "INBOX", offset=2, limit=2)
+
+    assert [email.uid for email in first_page] == ["7", "6"]
+    assert [email.subject for email in first_page] == ["Big", "Attachments"]
+    assert [email.uid for email in second_page] == ["5", "4"]
+    assert client.fetch_calls == [
+        ("6:7", "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])"),
+        ("4:5", "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])"),
+    ]
+    assert not any(call == ("search", (None, "ALL")) for call in client.uid_calls)
+
+
+def test_list_emails_handles_empty_mailbox_without_fetch(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+    client.messages = {}
+
+    assert service.list_emails("u", "p", "INBOX", offset=0, limit=20) == ()
+
+    assert client.fetch_calls == []
+    assert client.uid_calls == []
+
+
+def test_list_emails_offset_beyond_mailbox_without_fetch(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    assert service.list_emails("u", "p", "INBOX", offset=99, limit=20) == ()
+
+    assert client.fetch_calls == []
+    assert client.uid_calls == []
 
 
 def test_read_email_strips_non_visible_html_content(base_env):
@@ -434,6 +496,9 @@ def test_invalid_input_and_not_found(base_env):
 
     with pytest.raises(InvalidInputError, match="offset must be >= 0"):
         service.list_emails("u", "p", "INBOX", offset=-1)
+
+    with pytest.raises(InvalidInputError, match="limit must be between 1 and 100"):
+        service.list_emails("u", "p", "INBOX", limit=0)
 
     with pytest.raises(NotFoundError, match="Folder not found"):
         service.list_emails("u", "p", "Archive")
