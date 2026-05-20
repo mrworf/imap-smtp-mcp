@@ -19,6 +19,8 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `MCP_APP_PRIVACY_POLICY_URL`: optional HTTPS privacy policy URL for your organization or deployment.
 - `MCP_APP_TERMS_OF_SERVICE_URL`: optional HTTPS terms of service URL for your organization or deployment.
 
+The website, privacy policy, and terms URLs are exposed through OAuth protected-resource and authorization-server metadata. ChatGPT may use these standards-based hints, but Developer Mode app-detail rows such as category, developer, logo, and public listing text are configured in OpenAI's app UI or submission flow rather than through this MCP server.
+
 ## OAuth And Storage
 
 - `APP_DATA_DIR`: persistent data directory for local state. Default: `/var/lib/imap-smtp-mcp`.

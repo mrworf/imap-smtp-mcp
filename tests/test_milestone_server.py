@@ -238,7 +238,12 @@ def test_health_ready_and_metadata(http_server):
     assert _request("GET", f"{base_url}/healthz")[0] == 200
     status, _, raw = _request("GET", f"{base_url}/.well-known/oauth-protected-resource")
     assert status == 200
-    assert json.loads(raw)["resource"] == "http://127.0.0.1:8000"
+    protected = json.loads(raw)
+    assert protected["resource"] == "http://127.0.0.1:8000"
+    assert protected["resource_name"] == "Personal Email Connector"
+    assert protected["resource_documentation"] == "https://github.com/mrworf/imap-smtp-mcp"
+    assert "resource_policy_uri" not in protected
+    assert "resource_tos_uri" not in protected
 
 
 def test_mcp_initialize_uses_connector_display_name(http_server):

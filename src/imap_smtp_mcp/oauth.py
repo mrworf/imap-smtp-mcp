@@ -396,16 +396,22 @@ class OAuthService:
         self._imap_verifier = imap_verifier or self._verify_imap_login
 
     def protected_resource_metadata(self) -> dict[str, object]:
-        return {
+        metadata: dict[str, object] = {
             "resource": self.config.oauth.audience,
+            "resource_name": self.config.app_metadata.display_name,
             "authorization_servers": [self.config.oauth.issuer],
             "scopes_supported": list(self.config.oauth.required_scopes),
-            "resource_documentation": f"{self.config.oauth.public_base_url}/docs",
+            "resource_documentation": self.config.app_metadata.website_url,
         }
+        if self.config.app_metadata.privacy_policy_url:
+            metadata["resource_policy_uri"] = self.config.app_metadata.privacy_policy_url
+        if self.config.app_metadata.terms_of_service_url:
+            metadata["resource_tos_uri"] = self.config.app_metadata.terms_of_service_url
+        return metadata
 
     def authorization_server_metadata(self) -> dict[str, object]:
         base = self.config.oauth.public_base_url
-        return {
+        metadata: dict[str, object] = {
             "issuer": self.config.oauth.issuer,
             "authorization_endpoint": f"{base}/oauth/authorize",
             "token_endpoint": f"{base}/oauth/token",
@@ -415,7 +421,13 @@ class OAuthService:
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
             "scopes_supported": list(self.config.oauth.required_scopes),
+            "service_documentation": self.config.app_metadata.website_url,
         }
+        if self.config.app_metadata.privacy_policy_url:
+            metadata["op_policy_uri"] = self.config.app_metadata.privacy_policy_url
+        if self.config.app_metadata.terms_of_service_url:
+            metadata["op_tos_uri"] = self.config.app_metadata.terms_of_service_url
+        return metadata
 
     def register_client(self, payload: dict[str, object]) -> dict[str, object]:
         redirect_uris = payload.get("redirect_uris")

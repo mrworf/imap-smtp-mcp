@@ -52,15 +52,43 @@ def test_oauth_metadata_and_dcr(oauth_env):
 
     protected = service.protected_resource_metadata()
     assert protected["resource"] == "https://mcp.example.com"
+    assert protected["resource_name"] == "Personal Email Connector"
     assert protected["authorization_servers"] == ["https://mcp.example.com"]
+    assert protected["resource_documentation"] == "https://github.com/mrworf/imap-smtp-mcp"
+    assert "resource_policy_uri" not in protected
+    assert "resource_tos_uri" not in protected
 
     metadata = service.authorization_server_metadata()
     assert metadata["authorization_endpoint"] == "https://mcp.example.com/oauth/authorize"
     assert metadata["registration_endpoint"] == "https://mcp.example.com/oauth/register"
     assert metadata["token_endpoint_auth_methods_supported"] == ["none"]
+    assert metadata["service_documentation"] == "https://github.com/mrworf/imap-smtp-mcp"
+    assert "op_policy_uri" not in metadata
+    assert "op_tos_uri" not in metadata
 
     client = service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
     assert client["client_id"].startswith("client-")
+
+
+def test_oauth_metadata_includes_configured_disclosure_links(oauth_env, monkeypatch):
+    monkeypatch.setenv("MCP_APP_DISPLAY_NAME", "Team Email")
+    monkeypatch.setenv("MCP_APP_WEBSITE_URL", "https://mail.example.com")
+    monkeypatch.setenv("MCP_APP_PRIVACY_POLICY_URL", "https://mail.example.com/privacy")
+    monkeypatch.setenv("MCP_APP_TERMS_OF_SERVICE_URL", "https://mail.example.com/terms")
+    service = _service(load_config())
+
+    protected = service.protected_resource_metadata()
+    assert protected["resource_name"] == "Team Email"
+    assert protected["resource_documentation"] == "https://mail.example.com"
+    assert protected["resource_policy_uri"] == "https://mail.example.com/privacy"
+    assert protected["resource_tos_uri"] == "https://mail.example.com/terms"
+
+    metadata = service.authorization_server_metadata()
+    assert metadata["service_documentation"] == "https://mail.example.com"
+    assert metadata["op_policy_uri"] == "https://mail.example.com/privacy"
+    assert metadata["op_tos_uri"] == "https://mail.example.com/terms"
+    assert "" not in protected.values()
+    assert "" not in metadata.values()
 
 
 def test_dcr_rejects_non_https_redirect(oauth_env):
