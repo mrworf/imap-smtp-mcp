@@ -21,7 +21,7 @@ from .write_tools import WriteMailboxService
 READ_SCOPE = "mail:read"
 SEND_SCOPE = "mail:send"
 WRITE_SCOPE = "mail:write"
-APP_DISPLAY_NAME = "Personal IMAP/SMTP Mail Connector"
+APP_DISPLAY_NAME = "Personal Email Connector"
 
 TOOL_SCOPES = {
     "list_folders": (READ_SCOPE,),
@@ -705,13 +705,14 @@ def _attachment_policy_text(config: AppConfig) -> str:
     return f"Attachment retrieval returns base64 file bytes for one allowed attachment. Maximum decoded size is {policy.max_bytes} bytes. {_attachment_blocklist_text(config)}"
 
 
-def _mailbox_routing_text(credentials: MailCredentials | None) -> str:
+def _mailbox_routing_text(config: AppConfig | None, credentials: MailCredentials | None) -> str:
+    app_display_name = config.app_metadata.display_name if config is not None else APP_DISPLAY_NAME
     if credentials is not None and credentials.sender_email:
         sender = credentials.sender_email
         if credentials.sender_display_name:
             sender = f"{credentials.sender_display_name} <{credentials.sender_email}>"
-        return f"Use this with the authenticated {APP_DISPLAY_NAME} mailbox for {sender}."
-    return f"Use this with the authenticated {APP_DISPLAY_NAME} mailbox."
+        return f"Use this with the authenticated {app_display_name} mailbox for {sender}."
+    return f"Use this with the authenticated {app_display_name} mailbox."
 
 
 def _description_for(name: str, config: AppConfig | None = None, credentials: MailCredentials | None = None) -> str:
@@ -736,7 +737,7 @@ def _description_for(name: str, config: AppConfig | None = None, credentials: Ma
         "rename_folder": "Rename an IMAP folder.",
         "delete_folder": "Delete an IMAP folder using the server's default IMAP DELETE behavior.",
     }
-    routing_text = _mailbox_routing_text(credentials)
+    routing_text = _mailbox_routing_text(config, credentials)
     if name == "get_email_attachment" and config is not None:
         return f"{descriptions[name]} {routing_text} {_attachment_policy_text(config)}"
     if name in {"send_email", "send_mail"} and config is not None:

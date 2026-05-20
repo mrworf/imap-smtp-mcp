@@ -1,14 +1,14 @@
 # Example Prompts
 
-These prompts are written for ChatGPT when Personal IMAP/SMTP Mail Connector is enabled. They favor clear mailbox names, bounded result sizes, and explicit safety rules for write operations.
+These prompts are written for ChatGPT when Personal Email Connector is enabled. They favor clear mailbox names, bounded result sizes, and explicit safety rules for write operations.
 
-If Gmail or another mail connector is enabled in the same chat, include “use Personal IMAP/SMTP Mail Connector, not Gmail” in your prompt so ChatGPT routes the request to this IMAP/SMTP mailbox.
+If Gmail or another mail connector is enabled in the same chat, include “use Personal Email Connector, not Gmail” in your prompt so ChatGPT routes the request to this IMAP/SMTP mailbox.
 
 ## Common Read Prompts
 
-- Use Personal IMAP/SMTP Mail Connector, not Gmail, and list my mail folders.
-- Use Personal IMAP/SMTP Mail Connector, not Gmail, and search my mail for `invoice` with `search_mail`, returning up to 25 matches from `INBOX`.
-- Use Personal IMAP/SMTP Mail Connector, not Gmail, and get my 20 most recent messages with `get_recent_mail`.
+- Use Personal Email Connector, not Gmail, and list my mail folders.
+- Use Personal Email Connector, not Gmail, and search my mail for `invoice` with `search_mail`, returning up to 25 matches from `INBOX`.
+- Use Personal Email Connector, not Gmail, and get my 20 most recent messages with `get_recent_mail`.
 - Show the 20 most recent messages in `INBOX`.
 - Show emails from today in `INBOX` using `search_emails` criteria like `{"and":[{"type":"since","value":"2026-05-13"},{"type":"before","value":"2026-05-14"}]}`, then summarize the senders and subjects.
 - Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches. `text` is the intended full-message search type for exact markers or terms in subject/body; use `subject` only when intentionally narrowing to the Subject header.
@@ -20,8 +20,8 @@ If Gmail or another mail connector is enabled in the same chat, include “use P
 
 ## Common Send And Organize Prompts
 
-- Use Personal IMAP/SMTP Mail Connector, not Gmail, and send mail to `person@example.com` with `send_mail`, subject `Hello from MCP`, and the body `This is a test message from my Personal IMAP/SMTP Mail Connector.`
-- Use Personal IMAP/SMTP Mail Connector, not Gmail, and send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my Personal IMAP/SMTP Mail Connector.`
+- Use Personal Email Connector, not Gmail, and send mail to `person@example.com` with `send_mail`, subject `Hello from MCP`, and the body `This is a test message from my Personal Email Connector.`
+- Use Personal Email Connector, not Gmail, and send an email to `person@example.com` with subject `Hello from MCP` and the body `This is a test message from my Personal Email Connector.`
 - Send an email to `person@example.com` with subject `Files from MCP`, body `Attached are the requested files.`, and no more than the connector's advertised attachment limit. Do not attach HTML or JavaScript unless the tool definition says this deployment allows them.
 - Create a folder named `MCP Test <unique-marker>`, then rename it to `MCP Test Renamed <unique-marker>`.
 - Send a test email to myself with subject `MCP owned message <unique-marker>`, search for that exact marker with the intended full-marker `search_emails` criteria `{"type":"text","value":"<unique-marker>"}`, and only copy, move, mark read or unread, trash, or permanently delete messages that match that marker.
@@ -35,7 +35,7 @@ If Gmail or another mail connector is enabled in the same chat, include “use P
 Use this prompt when you want ChatGPT to exercise all current MCP capabilities without intentionally modifying existing mailbox content:
 
 ```text
-Run a safe Personal IMAP/SMTP Mail Connector smoke test against my mailbox. Use Personal IMAP/SMTP Mail Connector, not Gmail.
+Run a safe Personal Email Connector smoke test against my mailbox. Use Personal Email Connector, not Gmail.
 
 Use a unique marker like MCP-SMOKE-<timestamp>-<random>. First get_sender_identity so you know the display name and outbound sender email, then list_folders and confirm the configured INBOX and Trash folder names. Create a folder named MCP Smoke <marker>, then rename_folder it to MCP Smoke Renamed <marker>.
 

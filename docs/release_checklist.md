@@ -1,5 +1,6 @@
 # Release Checklist
 
+- [x] Verify Personal Email Connector app metadata and documentation use the current product name.
 - [x] Run lint checks (`ruff check .`).
 - [x] Run type checks (`mypy src`).
 - [x] Run full unit test suite (`pytest -q`).

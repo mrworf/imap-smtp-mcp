@@ -13,6 +13,11 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 - `MCP_TLS_CERT_FILE`: certificate path for direct internal HTTPS.
 - `MCP_TLS_KEY_FILE`: private key path for direct internal HTTPS.
 - `MCP_DEBUG_UNREDACTED_LOGS`: include sanitized tool arguments/results, message content, and tracebacks in audit logs for short debugging windows. Default: `false`; do not enable for production mailboxes.
+- `MCP_APP_DISPLAY_NAME`: ChatGPT-facing connector name used in MCP metadata, tool descriptions, and the OAuth authorize page. Default: `Personal Email Connector`.
+- `MCP_APP_DESCRIPTION`: short ChatGPT-facing connector description used on the OAuth authorize page. Default: `Find, read, organize, and send email from your configured IMAP/SMTP mailbox.`
+- `MCP_APP_WEBSITE_URL`: HTTPS website/documentation URL disclosed in app metadata. Default: `https://github.com/mrworf/imap-smtp-mcp`.
+- `MCP_APP_PRIVACY_POLICY_URL`: optional HTTPS privacy policy URL for your organization or deployment.
+- `MCP_APP_TERMS_OF_SERVICE_URL`: optional HTTPS terms of service URL for your organization or deployment.
 
 ## OAuth And Storage
 

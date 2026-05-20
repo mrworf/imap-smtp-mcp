@@ -246,7 +246,24 @@ def test_mcp_initialize_uses_connector_display_name(http_server):
     status, _, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "init-1", "method": "initialize"})
 
     assert status == 200
-    assert json.loads(raw)["result"]["serverInfo"]["name"] == "Personal IMAP/SMTP Mail Connector"
+    assert json.loads(raw)["result"]["serverInfo"]["name"] == "Personal Email Connector"
+
+
+def test_mcp_initialize_uses_configured_app_display_name(server_env, monkeypatch):
+    monkeypatch.setenv("MCP_APP_DISPLAY_NAME", "Team Email")
+    config = load_config()
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "init-1", "method": "initialize"})
+        assert status == 200
+        assert json.loads(raw)["result"]["serverInfo"]["name"] == "Team Email"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
@@ -302,9 +319,9 @@ def test_authorize_form_identifies_app_and_groups_credentials(http_server):
 
     assert status == 200
     assert "<h1" in html
-    assert "Authorize Personal IMAP/SMTP Mail Connector" in html
-    assert "Personal IMAP/SMTP Mail Connector is a self-hosted mail connector" in html
-    assert "lets authorized MCP clients use your configured IMAP and SMTP account" in html
+    assert "Authorize Personal Email Connector" in html
+    assert "Find, read, organize, and send email from your configured IMAP/SMTP mailbox." in html
+    assert "lets authorized MCP clients list folders, search and read messages, send mail" in html
     assert 'href="https://github.com/mrworf/imap-smtp-mcp"' in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert "&lt;ChatGPT Connector&gt;" in html
@@ -325,6 +342,30 @@ def test_authorize_form_identifies_app_and_groups_credentials(http_server):
     assert "https://cdn" not in html
     assert "bootstrap" not in html.lower()
     assert "tailwind" not in html.lower()
+
+
+def test_authorize_form_uses_configured_app_metadata(server_env, monkeypatch):
+    monkeypatch.setenv("MCP_APP_DISPLAY_NAME", "Team Email")
+    monkeypatch.setenv("MCP_APP_DESCRIPTION", "Search and send team mail.")
+    monkeypatch.setenv("MCP_APP_WEBSITE_URL", "https://mail.example.com/docs")
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda *_: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+        client_id = json.loads(raw)["client_id"]
+        status, _, html = _request("GET", f"{base_url}/oauth/authorize?{_authorize_query(client_id)}")
+        assert status == 200
+        assert "Authorize Team Email" in html
+        assert "Search and send team mail." in html
+        assert 'href="https://mail.example.com/docs"' in html
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_authorize_get_sets_secure_cookie_for_https_public_url(server_env, monkeypatch):

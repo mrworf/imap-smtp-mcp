@@ -42,6 +42,43 @@ def test_valid_config_loads(base_env):
     assert config.attachment_policy.blocked_mime_types == DEFAULT_BLOCKED_MIME_TYPES
     assert config.attachment_policy.blocked_extensions == DEFAULT_BLOCKED_EXTENSIONS
     assert config.max_json_body_bytes > 1_048_576
+    assert config.app_metadata.display_name == "Personal Email Connector"
+    assert config.app_metadata.description == "Find, read, organize, and send email from your configured IMAP/SMTP mailbox."
+    assert config.app_metadata.website_url == "https://github.com/mrworf/imap-smtp-mcp"
+    assert config.app_metadata.privacy_policy_url is None
+    assert config.app_metadata.terms_of_service_url is None
+
+
+def test_app_metadata_overrides_load(base_env, monkeypatch):
+    monkeypatch.setenv("MCP_APP_DISPLAY_NAME", "Team Email")
+    monkeypatch.setenv("MCP_APP_DESCRIPTION", "Search and send team mail.")
+    monkeypatch.setenv("MCP_APP_WEBSITE_URL", "https://mail.example.com/docs")
+    monkeypatch.setenv("MCP_APP_PRIVACY_POLICY_URL", "https://mail.example.com/privacy")
+    monkeypatch.setenv("MCP_APP_TERMS_OF_SERVICE_URL", "https://mail.example.com/terms")
+
+    config = load_config()
+
+    assert config.app_metadata.display_name == "Team Email"
+    assert config.app_metadata.description == "Search and send team mail."
+    assert config.app_metadata.website_url == "https://mail.example.com/docs"
+    assert config.app_metadata.privacy_policy_url == "https://mail.example.com/privacy"
+    assert config.app_metadata.terms_of_service_url == "https://mail.example.com/terms"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    (
+        ("MCP_APP_DISPLAY_NAME", " ", "MCP_APP_DISPLAY_NAME must not be empty"),
+        ("MCP_APP_DESCRIPTION", "", "MCP_APP_DESCRIPTION must not be empty"),
+        ("MCP_APP_WEBSITE_URL", "http://mail.example.com", "MCP_APP_WEBSITE_URL must be an absolute https URL"),
+        ("MCP_APP_PRIVACY_POLICY_URL", "/privacy", "MCP_APP_PRIVACY_POLICY_URL must be an absolute https URL"),
+        ("MCP_APP_TERMS_OF_SERVICE_URL", "not-a-url", "MCP_APP_TERMS_OF_SERVICE_URL must be an absolute https URL"),
+    ),
+)
+def test_app_metadata_rejects_invalid_values(base_env, monkeypatch, name, value, message):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ConfigError, match=message):
+        load_config()
 
 
 def test_missing_required_env_fails(monkeypatch):

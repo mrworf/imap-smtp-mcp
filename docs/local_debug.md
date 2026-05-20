@@ -1,6 +1,6 @@
 # Local Shell Debugging
 
-This workflow is for debugging only. It creates local runtime directories, uses debug-only OAuth secrets when you do not provide real ones, and can generate a short-lived self-signed certificate for standalone HTTPS testing.
+This Personal Email Connector workflow is for debugging only. It creates local runtime directories, uses debug-only OAuth secrets when you do not provide real ones, and can generate a short-lived self-signed certificate for standalone HTTPS testing.
 
 Docker remains the recommended deployment shape. For production, use persistent secrets, persistent storage, and a public HTTPS reverse proxy.
 

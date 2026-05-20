@@ -1,5 +1,7 @@
 # Security Operations Guide
 
+Use these controls when operating Personal Email Connector against real mailboxes.
+
 ## Secret management
 - Inject all secrets through environment variables or a secret manager.
 - Never commit plaintext credentials to repository files.

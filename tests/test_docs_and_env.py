@@ -39,6 +39,10 @@ def test_env_example_uses_oauth_only_persistent_config() -> None:
     assert "MCP_TLS_CERT_FILE=" in env_example
     assert "MCP_TLS_KEY_FILE=" in env_example
     assert "MCP_DEBUG_UNREDACTED_LOGS=false" in env_example
+    assert "MCP_APP_DISPLAY_NAME=Personal Email Connector" in env_example
+    assert "MCP_APP_WEBSITE_URL=https://github.com/mrworf/imap-smtp-mcp" in env_example
+    assert "MCP_APP_PRIVACY_POLICY_URL=" in env_example
+    assert "MCP_APP_TERMS_OF_SERVICE_URL=" in env_example
     assert "SMTP_TIMEOUT_SECONDS=30" in env_example
     assert "SMTP_FROM_DOMAIN=example.com" in env_example
     assert "ACTION_CREATE_FOLDER=false" in env_example
@@ -93,6 +97,7 @@ def test_readme_describes_project_and_links_docs() -> None:
     readme = readme_path.read_text(encoding="utf-8")
 
     assert "actions/workflows/ci.yml/badge.svg?branch=main" in readme
+    assert '<img src="imap-smtp-mcp.png" alt="Personal Email Connector logo"' in readme
     assert "[![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)]" in readme
     assert "ghcr.io/mrworf/imap-smtp-mcp" in readme
     assert "github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp" in readme
@@ -107,6 +112,14 @@ def test_readme_describes_project_and_links_docs() -> None:
     assert "docs/local_debug.md" in readme
     assert "docs/manual_mcp_compat_suite.md" in readme
     assert "IMPLEMENTATION_PLAN.md" not in readme
+
+
+def test_docs_use_current_app_name() -> None:
+    docs = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+    for path in docs:
+        text = path.read_text(encoding="utf-8")
+        assert "Personal Email Connector" in text
+        assert "Personal IMAP/SMTP Mail Connector" not in text
 
 
 def test_agent_instructions_are_self_contained() -> None:

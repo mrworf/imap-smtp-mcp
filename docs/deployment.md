@@ -1,5 +1,7 @@
 # Deployment guide
 
+This guide deploys Personal Email Connector as a self-hosted IMAP/SMTP MCP server for ChatGPT-compatible clients.
+
 ## Runtime profile
 - Python 3.12 container image running `python -m imap_smtp_mcp.server`.
 - Non-root runtime user (`mcp`).

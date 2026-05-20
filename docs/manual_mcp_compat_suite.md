@@ -1,5 +1,7 @@
 # Manual MCP Compatibility Suite
 
+This suite verifies Personal Email Connector compatibility against a dedicated IMAP/SMTP mailbox.
+
 ## Destructive test warning
 This suite creates, copies, moves, marks, trashes, permanently deletes, and expunges messages. Run it only against a dedicated test mailbox.
 

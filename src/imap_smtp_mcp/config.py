@@ -66,6 +66,15 @@ class ServerConfig:
 
 
 @dataclass(frozen=True)
+class AppMetadata:
+    display_name: str = "Personal Email Connector"
+    description: str = "Find, read, organize, and send email from your configured IMAP/SMTP mailbox."
+    website_url: str = "https://github.com/mrworf/imap-smtp-mcp"
+    privacy_policy_url: str | None = None
+    terms_of_service_url: str | None = None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     imap: EndpointConfig
     smtp: EndpointConfig
@@ -84,6 +93,7 @@ class AppConfig:
     max_json_body_bytes: int = 1_048_576
     oauth: OAuthConfig = OAuthConfig()
     server: ServerConfig = ServerConfig()
+    app_metadata: AppMetadata = AppMetadata()
 
 
 def _require(name: str) -> str:
@@ -201,6 +211,24 @@ def _parse_url(name: str, default: str) -> str:
     return raw
 
 
+def _parse_https_metadata_url(name: str, default: str | None = None) -> str | None:
+    raw = os.getenv(name)
+    value = default if raw is None else raw.strip()
+    if value is None or not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ConfigError(f"{name} must be an absolute https URL")
+    return value.rstrip("/")
+
+
+def _parse_nonempty_text(name: str, default: str) -> str:
+    value = os.getenv(name, default).strip()
+    if not value:
+        raise ConfigError(f"{name} must not be empty")
+    return value
+
+
 def _validate_https_public_url(public_base_url: str) -> None:
     allow_insecure = _parse_bool("MCP_ALLOW_INSECURE_PUBLIC_URL", False)
     parsed = urlparse(public_base_url)
@@ -301,6 +329,16 @@ def _load_server_config() -> ServerConfig:
     )
 
 
+def _load_app_metadata() -> AppMetadata:
+    return AppMetadata(
+        display_name=_parse_nonempty_text("MCP_APP_DISPLAY_NAME", AppMetadata.display_name),
+        description=_parse_nonempty_text("MCP_APP_DESCRIPTION", AppMetadata.description),
+        website_url=_parse_https_metadata_url("MCP_APP_WEBSITE_URL", AppMetadata.website_url) or AppMetadata.website_url,
+        privacy_policy_url=_parse_https_metadata_url("MCP_APP_PRIVACY_POLICY_URL"),
+        terms_of_service_url=_parse_https_metadata_url("MCP_APP_TERMS_OF_SERVICE_URL"),
+    )
+
+
 def _load_attachment_policy() -> tuple[AttachmentPolicy, int]:
     max_count = _parse_int("MCP_ATTACHMENT_MAX_COUNT", 10)
     if max_count < 0:
@@ -373,4 +411,5 @@ def load_config() -> AppConfig:
         max_json_body_bytes=max_json_body_bytes,
         oauth=_load_oauth_config(app_data_dir),
         server=_load_server_config(),
+        app_metadata=_load_app_metadata(),
     )
