@@ -30,6 +30,10 @@ These instructions apply to the entire repository.
 
 ## Testing expectations
 - Every new feature requires positive and negative tests.
+- Documentation-only changes do not require detailed content assertions. Keep documentation tests limited to policy-level guardrails:
+  - documentation must be internally consistent and not contradict itself;
+  - documentation must not contain production/real PII, PHI, PCI, or production configuration;
+  - redundant, stale, or invalid documentation created by a change must be updated or removed.
 - Completed changes require relevant tests passing locally.
 - Endpoint tests that bind `127.0.0.1` may fail under sandboxing with `PermissionError`; rerun the same pytest command with loopback permission rather than changing the tests.
 - For stdlib IMAP/SMTP clients, pass TLS context/timeout values by keyword (`ssl_context=`, `context=`, `timeout=`); positional arguments can silently map to different parameters across classes.
