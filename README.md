@@ -5,13 +5,9 @@
 [![CI](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mrworf/imap-smtp-mcp/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)](https://github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp)
 
-`imap-smtp-mcp` advertises itself to ChatGPT as Personal Email Connector, a self-hosted MCP server that lets ChatGPT-compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization for ChatGPT, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
+`imap-smtp-mcp` advertises itself as Personal Email Connector, a self-hosted MCP server that lets compatible remote MCP clients use a regular IMAP and SMTP account. It exposes an HTTP MCP endpoint, handles OAuth authorization, verifies users through IMAP login, and stores mailbox credentials encrypted in a local SQLite-backed OAuth store.
 
-The intended production shape is a Docker container behind a public HTTPS reverse proxy. ChatGPT sees only the public `/sse` endpoint and the OAuth metadata endpoints; IMAP and SMTP credentials are entered during OAuth authorization and are never supplied as tool arguments.
-
-### Quirk with ChatGPT
-
-ChatGPT tends to default to Gmail for generic email prompts regardless if you have Gmail available or not. In an empty chat, set a ChatGPT memory or preference with `remember that I don't use gmail and instead use the Personal Email Connector` so future email prompts are more likely to route here. This is not a server-side guarantee. For sensitive or ambiguous requests, still include `use Personal Email Connector, not Gmail` in the prompt, or the `@Personal Email Connector` reference.
+The intended production shape is a Docker container behind a public HTTPS reverse proxy. Remote MCP clients see only the public `/sse` endpoint and the OAuth metadata endpoints; IMAP and SMTP credentials are entered during OAuth authorization and are never supplied as tool arguments.
 
 ## What It Provides
 
@@ -26,7 +22,8 @@ ChatGPT tends to default to Gmail for generic email prompts regardless if you ha
 
 ## Documentation
 
-- [Deployment guide](docs/deployment.md): Docker, reverse proxy, direct HTTPS, OAuth secrets, and ChatGPT setup.
+- [Deployment guide](docs/deployment.md): Docker, reverse proxy, direct HTTPS, OAuth secrets, and runtime setup.
+- [Integration guide](INTEGRATIONS.md): ChatGPT setup, routing quirks, and untested notes for Claude, Mistral, Perplexity, and other MCP clients.
 - [Configuration reference](docs/configuration.md): complete environment-variable reference for server and test-suite settings.
 - [Example prompts](docs/example_prompts.md): safe prompts for common mail actions and full-capability smoke testing.
 - [Local shell debugging](docs/local_debug.md): non-production helper for running without Docker, including reverse-proxy and standalone HTTPS modes.

@@ -1,18 +1,18 @@
 # Deployment guide
 
-This guide deploys Personal Email Connector as a self-hosted IMAP/SMTP MCP server for ChatGPT-compatible clients.
+This guide deploys Personal Email Connector as a self-hosted IMAP/SMTP MCP server for remote MCP clients.
 
 ## Runtime profile
 - Python 3.12 container image running `python -m imap_smtp_mcp.server`.
 - Non-root runtime user (`mcp`).
 - The MCP endpoint is Streamable HTTP-compatible JSON-RPC at `/sse`.
-- `/sse` is not a strict legacy long-lived SSE event channel. Native stdio for Claude Desktop is not implemented; use a separate HTTP-to-stdio bridge if needed.
+- `/sse` is not a strict legacy long-lived SSE event channel. Native stdio is not implemented; use a separate HTTP-to-stdio bridge if needed.
 - `APP_DATA_DIR` must be writable for the SQLite OAuth store, and `AUDIT_LOG_DIR` must be writable for audit logs.
 
 For every supported environment variable, see the [Configuration Reference](configuration.md).
 
-## ChatGPT-facing URL
-Set `MCP_PUBLIC_BASE_URL` to the public HTTPS URL ChatGPT will connect to:
+## Client-facing URL
+Set `MCP_PUBLIC_BASE_URL` to the public HTTPS URL remote MCP clients will connect to:
 
 ```env
 MCP_PUBLIC_BASE_URL=https://mail-mcp.example.com
@@ -77,7 +77,7 @@ Self-signed internal HTTPS is intended only for trusted internal deployments:
 MCP_ALLOW_SELF_SIGNED_INTERNAL_HTTPS=true
 ```
 
-This does not relax the requirement that the public ChatGPT-facing URL uses HTTPS.
+This does not relax the requirement that the public client-facing URL uses HTTPS.
 
 ## OAuth state
 OAuth clients, authorization codes, credential sessions, and hashed refresh tokens are stored in SQLite:
@@ -115,27 +115,10 @@ python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 `OAUTH_COOKIE_SECRET` signs the short-lived browser cookie used to protect `/oauth/authorize` credential form submissions from CSRF and authorize-query swapping. Rotating it invalidates only in-flight authorization forms; existing OAuth clients, sessions, and tokens use the SQLite store and signing/encryption keys instead.
 
-## ChatGPT setup
-Use this public MCP URL in ChatGPT Apps & Connectors:
-
-```text
-https://mail-mcp.example.com/sse
-```
-
-ChatGPT discovers OAuth from:
-
-```text
-https://mail-mcp.example.com/.well-known/oauth-protected-resource
-https://mail-mcp.example.com/.well-known/oauth-authorization-server
-```
+## Client integration
+For ChatGPT setup, redirect URI allowlists, and notes on untested clients such as Claude, Mistral, and Perplexity, see the [Integration Guide](../INTEGRATIONS.md).
 
 The server supports Dynamic Client Registration and authorization-code + PKCE. Users authorize by entering separate IMAP and SMTP credentials. The IMAP login is verified before tokens are issued.
-
-Restrict Dynamic Client Registration to known redirect destinations. For ChatGPT, allow its connector OAuth redirect:
-
-```env
-OAUTH_ALLOWED_REDIRECT_URI_PATTERNS=https://chatgpt\.com/connector/oauth/cb
-```
 
 The server also rate-limits registration and authorize POST attempts locally, and bounds in-memory OAuth rate-limit and authorize-form CSRF state with `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`. Keep these app-local protections enabled, and use reverse-proxy request/IP limits for public deployments on `GET /oauth/authorize`, `POST /oauth/authorize`, `POST /oauth/register`, and `POST /oauth/token`.
 

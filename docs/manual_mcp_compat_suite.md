@@ -21,7 +21,7 @@ The suite verifies that the configured inbox and trash folder exist before sendi
 
 Read/list tool responses are object-shaped for ChatGPT compatibility; for example, `list_folders` returns a `folders` array and `list_emails`/`get_recent_mail` return an `emails` array. `list_emails` and `get_recent_mail` page newest-first by mailbox order and return stable IMAP UIDs. `search_mail`, `get_recent_mail`, and `send_mail` are ChatGPT-friendly aliases over the lower-level IMAP/SMTP tools.
 
-`/sse` is Streamable HTTP-compatible JSON-RPC for ChatGPT. It is not a strict legacy long-lived SSE stream. Native stdio for Claude Desktop is not implemented; use an external HTTP-to-stdio bridge if needed.
+`/sse` is Streamable HTTP-compatible JSON-RPC for remote MCP clients. It is not a strict legacy long-lived SSE stream. Native stdio is not implemented; use an external HTTP-to-stdio bridge if needed.
 
 It verifies:
 
@@ -94,6 +94,6 @@ export MCP_COMPAT_PUBLIC_BASE_URL=https://mail-mcp.example.com
 export MCP_COMPAT_USE_EXISTING_SERVER=true
 ```
 
-The production ChatGPT-facing URL must remain HTTPS even when the app listens internally on HTTP.
+The production client-facing URL must remain HTTPS even when the app listens internally on HTTP.
 
 The suite submits the OAuth sender display name and outbound email during authorization. The `send_email` call itself does not include `from_address`; the server must use the captured sender identity and reject spoofing attempts from MCP callers.

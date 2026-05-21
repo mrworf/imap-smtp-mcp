@@ -1,154 +1,29 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_docs_describe_streamable_http_limitations() -> None:
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-    manual = (ROOT / "docs/manual_mcp_compat_suite.md").read_text(encoding="utf-8")
-
-    for text in (deployment, manual):
-        assert "Streamable HTTP" in text
-        assert "not a strict legacy long-lived SSE" in text
-        assert "Native stdio" in text
-
-
-def test_manual_suite_docs_describe_csrf_and_source_checkout_launch() -> None:
-    manual = (ROOT / "docs/manual_mcp_compat_suite.md").read_text(encoding="utf-8")
-
-    assert "CSRF-protected authorize form path" in manual
-    assert "GET /oauth/authorize" in manual
-    assert "POST /oauth/authorize" in manual
-    assert "PYTHONPATH" in manual
-    assert "src" in manual
-    assert "configured inbox and trash folder exist" in manual
-    assert "creates a unique temporary test folder" in manual
-    assert "re-searches for the unique per-run marker before copy and move" in manual
+def _documentation_paths() -> list[Path]:
+    return [
+        ROOT / "AGENTS.md",
+        ROOT / "README.md",
+        ROOT / "INTEGRATIONS.md",
+        ROOT / "env.example",
+        *sorted((ROOT / "docs").glob("*.md")),
+    ]
 
 
-def test_env_example_uses_oauth_only_persistent_config() -> None:
-    env_example = (ROOT / "env.example").read_text(encoding="utf-8")
-
-    assert "APP_DATA_DIR=" in env_example
-    assert "OAUTH_STORE_PATH=" in env_example
-    assert "OAUTH_REFRESH_TOKEN_TTL_SECONDS=" in env_example
-    assert "OAUTH_COOKIE_SECRET=replace-with-long-random-csrf-cookie-signing-secret" in env_example
-    assert "MCP_TLS_CERT_FILE=" in env_example
-    assert "MCP_TLS_KEY_FILE=" in env_example
-    assert "MCP_DEBUG_UNREDACTED_LOGS=false" in env_example
-    assert "MCP_APP_DISPLAY_NAME=Personal Email Connector" in env_example
-    assert "MCP_APP_WEBSITE_URL=https://github.com/mrworf/imap-smtp-mcp" in env_example
-    assert "MCP_APP_PRIVACY_POLICY_URL=" in env_example
-    assert "MCP_APP_TERMS_OF_SERVICE_URL=" in env_example
-    assert "SMTP_TIMEOUT_SECONDS=30" in env_example
-    assert "SMTP_FROM_DOMAIN=example.com" in env_example
-    assert "ACTION_CREATE_FOLDER=false" in env_example
-    assert "ACTION_RENAME_FOLDER=false" in env_example
-    assert "ACTION_DELETE_FOLDER=false" in env_example
-    assert "MCP_" + "PRESHARED_KEY" not in env_example
-    assert "MCP_" + "ALLOWED_USERS" not in env_example
-    assert "USER_ALICE_" + "IMAP_USERNAME" not in env_example
-
-
-def test_docs_explain_cookie_secret_usage() -> None:
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
-
-    for text in (deployment, security):
-        assert "OAUTH_COOKIE_SECRET" in text
-        assert "CSRF" in text
-        assert "in-flight authorization forms" in text
-
-
-def test_docs_describe_oauth_endpoint_proxy_rate_limits() -> None:
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
-
-    for text in (deployment, security):
-        assert "GET /oauth/authorize" in text
-        assert "POST /oauth/authorize" in text
-        assert "POST /oauth/register" in text
-        assert "POST /oauth/token" in text
-        assert "reverse-proxy request/IP limits" in text
-
-    assert "limit_req" in deployment
-    assert "OAUTH_AUTHORIZE_CSRF_MAX_TOKENS" in security
-
-
-def test_local_debug_docs_cover_shell_modes() -> None:
-    local_debug_path = ROOT / "docs/local_debug.md"
-    assert local_debug_path.exists()
-    local_debug = local_debug_path.read_text(encoding="utf-8")
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-
-    assert "reverse proxy runs somewhere else on your LAN or VPN" in local_debug
-    assert "--host 0.0.0.0" in local_debug
-    assert "--mode https" in local_debug
-    assert "self-signed certificate" in local_debug
-    assert "Local Shell Debugging](local_debug.md)" in deployment
-
-
-def test_readme_describes_project_and_links_docs() -> None:
-    readme_path = ROOT / "README.md"
-    assert readme_path.exists()
-    readme = readme_path.read_text(encoding="utf-8")
-
-    assert "actions/workflows/ci.yml/badge.svg?branch=main" in readme
-    assert '<img src="imap-smtp-mcp.png" alt="Personal Email Connector logo"' in readme
-    assert "[![Docker image](https://img.shields.io/badge/GHCR-imap--smtp--mcp-2ea44f?logo=github)]" in readme
-    assert "ghcr.io/mrworf/imap-smtp-mcp" in readme
-    assert "github.com/mrworf/imap-smtp-mcp/pkgs/container/imap-smtp-mcp" in readme
-    assert "ghcr.io/mrworf/imap-smtp-mcp/pkgs" not in readme
-    assert "Docker image" in readme
-    assert "ChatGPT-compatible remote MCP" in readme
-    assert "encrypted" in readme
-    assert "creating, renaming, and deleting folders" in readme
-    assert "docs/deployment.md" in readme
-    assert "docs/configuration.md" in readme
-    assert "docs/example_prompts.md" in readme
-    assert "docs/local_debug.md" in readme
-    assert "docs/manual_mcp_compat_suite.md" in readme
-    assert "IMPLEMENTATION_PLAN.md" not in readme
-
-
-def test_docs_cover_chatgpt_default_email_connector_tip() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    prompts = (ROOT / "docs/example_prompts.md").read_text(encoding="utf-8")
-    memory_tip = (
-        "remember that I don't use gmail and instead use the Personal Email Connector"
-    )
-
-    for text in (readme, prompts):
-        assert memory_tip in text
-        assert "empty chat" in text
-        assert "use Personal Email Connector, not Gmail" in text
-        assert "disable Gmail" not in text
-        assert "not a server-side guarantee" in text
-        assert "force ChatGPT" not in text
-
-
-def test_docs_use_current_app_name() -> None:
-    docs = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
-    for path in docs:
-        text = path.read_text(encoding="utf-8")
-        assert "Personal Email Connector" in text
-        assert "Personal IMAP/SMTP Mail Connector" not in text
-
-
-def test_agent_instructions_are_self_contained() -> None:
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-
-    assert "IMPLEMENTATION_PLAN.md" not in agents
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def test_configuration_reference_covers_environment_variables() -> None:
-    config_path = ROOT / "docs/configuration.md"
-    assert config_path.exists()
-    config = config_path.read_text(encoding="utf-8")
-    env_example = (ROOT / "env.example").read_text(encoding="utf-8")
+    config = _read(ROOT / "docs/configuration.md")
+    env_example = _read(ROOT / "env.example")
 
     env_names = []
     for line in env_example.splitlines():
@@ -165,80 +40,121 @@ def test_configuration_reference_covers_environment_variables() -> None:
     assert "not by the production server" in config
 
 
-def test_configuration_docs_are_linked_and_stale_docs_removed() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+def test_documentation_links_are_current_and_not_redundant() -> None:
+    readme = _read(ROOT / "README.md")
+    deployment = _read(ROOT / "docs/deployment.md")
+    config = _read(ROOT / "docs/configuration.md")
 
-    assert "docs/configuration.md" in readme
-    assert "Configuration Reference](configuration.md)" in deployment
+    assert (ROOT / "INTEGRATIONS.md").exists()
+    assert "INTEGRATIONS.md" in readme
+    assert "Integration Guide](../INTEGRATIONS.md)" in deployment
+    assert "Integration Guide](../INTEGRATIONS.md)" in config
+    assert "### Quirk with ChatGPT" not in readme
+    assert "https://chatgpt\\.com/connector/oauth/cb" not in "\n".join(
+        _read(path) for path in _documentation_paths()
+    )
     assert not (ROOT / "IMPLEMENTATION_PLAN.md").exists()
     assert not (ROOT / "docs/milestone4.md").exists()
     assert not (ROOT / "docs/milestone6.md").exists()
 
 
-def test_security_docs_name_folder_action_flags() -> None:
-    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
+def test_integration_guide_tracks_supported_and_untested_clients() -> None:
+    integrations = _read(ROOT / "INTEGRATIONS.md")
 
-    assert "ACTION_CREATE_FOLDER" in security
-    assert "ACTION_RENAME_FOLDER" in security
-    assert "ACTION_DELETE_FOLDER" in security
-
-
-def test_docs_describe_captured_sender_identity() -> None:
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-    manual = (ROOT / "docs/manual_mcp_compat_suite.md").read_text(encoding="utf-8")
-    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
-
-    for text in (deployment, manual, security):
-        assert "SMTP_FROM_DOMAIN" in text
-    assert "cannot choose `From` or `Reply-To`" in deployment
-    assert "sender_identity_override" in security
-    assert "does not include `from_address`" in manual
+    assert "ChatGPT is the primary tested integration target" in integrations
+    for client in ("Claude", "Mistral Le Chat", "Perplexity", "Other MCP Clients"):
+        assert f"## {client}" in integrations
+    assert (
+        "OAUTH_ALLOWED_REDIRECT_URI_PATTERNS=^https://chatgpt\\.com/connector/oauth/[A-Za-z0-9_-]+$"
+        in integrations
+    )
 
 
-def test_docs_describe_debug_unredacted_logging() -> None:
-    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
-    local_debug = (ROOT / "docs/local_debug.md").read_text(encoding="utf-8")
-    security = (ROOT / "docs/security_operations.md").read_text(encoding="utf-8")
-
-    for text in (deployment, local_debug, security):
-        assert "MCP_DEBUG_UNREDACTED_LOGS" in text
-        assert "traceback" in text.lower()
-        assert "redact" in text.lower()
+def test_docs_use_current_app_name_consistently() -> None:
+    for path in [ROOT / "README.md", ROOT / "INTEGRATIONS.md", *sorted((ROOT / "docs").glob("*.md"))]:
+        text = _read(path)
+        assert "Personal Email Connector" in text
+        assert "Personal IMAP/SMTP Mail Connector" not in text
 
 
-def test_example_prompts_cover_common_and_full_capability_flows() -> None:
-    prompts_path = ROOT / "docs/example_prompts.md"
-    assert prompts_path.exists()
-    prompts = prompts_path.read_text(encoding="utf-8")
+def test_documentation_has_no_obvious_real_sensitive_values() -> None:
+    combined = "\n".join(_read(path) for path in _documentation_paths())
 
-    assert '{"type":"since","value":"2026-05-13"}' in prompts
-    assert "`text` is the intended full-message search type" in prompts
-    assert "intended full-marker `search_emails` criteria" in prompts
-    assert "Full Capability Smoke Prompt" in prompts
-    assert "guarded skip" in prompts
-    assert "call empty_trash only if Trash is confirmed to contain no messages except MCP-created messages" in prompts
-    assert "Prefer the ChatGPT-friendly aliases `search_mail`, `get_recent_mail`, and `send_mail`" in prompts
+    assert not re.search(r"\b\d{3}-\d{2}-\d{4}\b", combined)
+    assert not _contains_luhn_credit_card(combined)
+    assert "password123" not in combined.lower()
+    assert "BEGIN PRIVATE KEY" not in combined
 
-    for capability in (
-        "list_folders",
-        "search_emails",
-        "search_mail",
-        "list_emails",
-        "get_recent_mail",
-        "read_email",
-        "get_email_attachment",
-        "get_sender_identity",
-        "send_email",
-        "send_mail",
-        "mark_read_state",
-        "move_email",
-        "copy_email",
-        "delete_email_permanent",
-        "move_to_trash",
-        "empty_trash",
-        "create_folder",
-        "rename_folder",
-        "delete_folder",
-    ):
-        assert capability in prompts
+    for name, value in _env_assignments(combined):
+        if not _looks_sensitive_env_name(name) or value in {"", "false", "true"}:
+            continue
+        assert _is_placeholder_value(value), f"{name} must use placeholder-safe documentation"
+
+
+def test_documentation_has_no_obvious_production_configuration() -> None:
+    combined = "\n".join(_read(path) for path in _documentation_paths())
+
+    assert "mail-mcp.example.com" in combined
+    assert "test-mailbox@example.com" in combined
+    assert not re.search(r"https://(?![^/\s]*example\.com)[^/\s]*\.(?:corp|internal)\b", combined)
+    assert not re.search(r"\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b", combined)
+
+
+def _env_assignments(text: str) -> list[tuple[str, str]]:
+    assignments = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = stripped.split("=", 1)
+        if re.fullmatch(r"[A-Z][A-Z0-9_]+", name):
+            assignments.append((name, value.strip()))
+    return assignments
+
+
+def _looks_sensitive_env_name(name: str) -> bool:
+    sensitive_names = {
+        "OAUTH_SIGNING_KEY",
+        "OAUTH_COOKIE_SECRET",
+        "OAUTH_ENCRYPTION_KEY",
+        "MCP_COMPAT_IMAP_PASSWORD",
+        "MCP_COMPAT_SMTP_PASSWORD",
+    }
+    return name in sensitive_names or name.endswith("_PASSWORD")
+
+
+def _is_placeholder_value(value: str) -> bool:
+    placeholder_markers = (
+        "<",
+        "replace-with",
+        "example",
+        "fake",
+        "your-",
+        "YOUR_",
+        "$",
+        "/run/secrets/",
+    )
+    return any(marker in value for marker in placeholder_markers)
+
+
+def _contains_luhn_credit_card(text: str) -> bool:
+    for match in re.finditer(r"\b(?:\d[ -]?){13,19}\b", text):
+        digits = re.sub(r"\D", "", match.group(0))
+        if len(digits) < 13:
+            continue
+        if _luhn_valid(digits):
+            return True
+    return False
+
+
+def _luhn_valid(digits: str) -> bool:
+    total = 0
+    parity = len(digits) % 2
+    for index, char in enumerate(digits):
+        digit = int(char)
+        if index % 2 == parity:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0

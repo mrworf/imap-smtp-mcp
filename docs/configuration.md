@@ -6,20 +6,20 @@ This reference describes the environment variables used by the IMAP/SMTP MCP ser
 
 - `MCP_HOST`: bind host for the HTTP server. Default: `0.0.0.0`.
 - `MCP_PORT`: bind port for the HTTP server. Default: `8000`.
-- `MCP_PUBLIC_BASE_URL`: public base URL ChatGPT uses to reach this server. Production URLs must use HTTPS.
+- `MCP_PUBLIC_BASE_URL`: public base URL remote MCP clients use to reach this server. Production URLs must use HTTPS.
 - `MCP_ALLOW_INSECURE_PUBLIC_URL`: development-only escape hatch for non-HTTPS public URLs outside localhost. Default: `false`.
 - `MCP_INTERNAL_HTTPS`: make the app terminate TLS directly instead of plain HTTP behind a proxy. Default: `false`.
 - `MCP_ALLOW_SELF_SIGNED_INTERNAL_HTTPS`: allow self-signed certificates for direct internal HTTPS. Default: `false`; requires `MCP_INTERNAL_HTTPS=true`.
 - `MCP_TLS_CERT_FILE`: certificate path for direct internal HTTPS.
 - `MCP_TLS_KEY_FILE`: private key path for direct internal HTTPS.
 - `MCP_DEBUG_UNREDACTED_LOGS`: include sanitized tool arguments/results, message content, and tracebacks in audit logs for short debugging windows. Default: `false`; do not enable for production mailboxes.
-- `MCP_APP_DISPLAY_NAME`: ChatGPT-facing connector name used in MCP metadata, tool descriptions, and the OAuth authorize page. Default: `Personal Email Connector`.
-- `MCP_APP_DESCRIPTION`: short ChatGPT-facing connector description used on the OAuth authorize page. Default: `Find, read, organize, and send email from your configured IMAP/SMTP mailbox.`
+- `MCP_APP_DISPLAY_NAME`: client-facing connector name used in MCP metadata, tool descriptions, and the OAuth authorize page. Default: `Personal Email Connector`.
+- `MCP_APP_DESCRIPTION`: short client-facing connector description used on the OAuth authorize page. Default: `Find, read, organize, and send email from your configured IMAP/SMTP mailbox.`
 - `MCP_APP_WEBSITE_URL`: HTTPS website/documentation URL disclosed in app metadata. Default: `https://github.com/mrworf/imap-smtp-mcp`.
 - `MCP_APP_PRIVACY_POLICY_URL`: optional HTTPS privacy policy URL for your organization or deployment.
 - `MCP_APP_TERMS_OF_SERVICE_URL`: optional HTTPS terms of service URL for your organization or deployment.
 
-The website, privacy policy, and terms URLs are exposed through OAuth protected-resource and authorization-server metadata. ChatGPT may use these standards-based hints, but Developer Mode app-detail rows such as category, developer, logo, and public listing text are configured in OpenAI's app UI or submission flow rather than through this MCP server.
+The website, privacy policy, and terms URLs are exposed through OAuth protected-resource and authorization-server metadata. Some clients may use these standards-based hints, but client-specific app-detail rows such as category, developer, logo, and public listing text are configured outside this MCP server.
 
 ## OAuth And Storage
 
@@ -32,7 +32,7 @@ The website, privacy policy, and terms URLs are exposed through OAuth protected-
 - `OAUTH_DEV_INSECURE_SECRETS`: development/test-only escape hatch that allows default weak signing/cookie secrets and an ephemeral credential encryption key. Default: `false`.
 - `OAUTH_ENCRYPTION_KEY`: Fernet key used to encrypt mailbox credentials in the OAuth store. Required unless `OAUTH_DEV_INSECURE_SECRETS=true`.
 - `OAUTH_REQUIRED_SCOPES`: space- or comma-separated required scopes. Default: `mail:read mail:send mail:write`.
-- `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS`: comma- or newline-separated regular expressions for allowed Dynamic Client Registration redirect URIs. Required for DCR; for ChatGPT use `https://chatgpt\.com/connector/oauth/cb`.
+- `OAUTH_ALLOWED_REDIRECT_URI_PATTERNS`: comma- or newline-separated regular expressions for allowed Dynamic Client Registration redirect URIs. Required for DCR; see the [Integration Guide](../INTEGRATIONS.md) for client-specific examples.
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS`: access-token lifetime. Default: `3600`.
 - `OAUTH_AUTH_CODE_TTL_SECONDS`: authorization-code lifetime. Default: `300`.
 - `OAUTH_REFRESH_TOKEN_TTL_SECONDS`: refresh-token lifetime. Default: `2592000`.
