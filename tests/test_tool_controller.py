@@ -9,6 +9,7 @@ from imap_smtp_mcp.attachments import AttachmentData
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, InvalidInputError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
+from imap_smtp_mcp.read_tools import EmailAttachmentSummary, EmailSummary, ReadEmailResult
 from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
 
@@ -32,7 +33,7 @@ def controller_env(monkeypatch, tmp_path):
 
 class FakeWriteService:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[str, ...]]] = []
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
 
     def create_folder(self, username: str, password: str, folder: str) -> None:
         self.calls.append(("create_folder", (username, password, folder)))
@@ -42,6 +43,24 @@ class FakeWriteService:
 
     def delete_folder(self, username: str, password: str, folder: str) -> None:
         self.calls.append(("delete_folder", (username, password, folder)))
+
+    def mark_read_state(self, username: str, password: str, folder: str, uid: str, is_read: bool) -> None:
+        self.calls.append(("mark_read_state", (username, password, folder, uid, is_read)))
+
+    def move_email(self, username: str, password: str, source_folder: str, target_folder: str, uid: str) -> None:
+        self.calls.append(("move_email", (username, password, source_folder, target_folder, uid)))
+
+    def copy_email(self, username: str, password: str, source_folder: str, target_folder: str, uid: str) -> None:
+        self.calls.append(("copy_email", (username, password, source_folder, target_folder, uid)))
+
+    def delete_email_permanent(self, username: str, password: str, folder: str, uid: str) -> None:
+        self.calls.append(("delete_email_permanent", (username, password, folder, uid)))
+
+    def move_to_trash(self, username: str, password: str, source_folder: str, uid: str) -> None:
+        self.calls.append(("move_to_trash", (username, password, source_folder, uid)))
+
+    def empty_trash(self, username: str, password: str) -> None:
+        self.calls.append(("empty_trash", (username, password)))
 
 
 class FakeReadService:
@@ -54,7 +73,7 @@ class FakeReadService:
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20):
         self.calls.append(("list_emails", (username, password, folder, offset, limit)))
-        return ({"uid": "1", "subject": "Hello"},)
+        return (EmailSummary(uid="1", subject="Hello", from_address="sender@example.com", date="Thu, 01 Jan 1970 00:00:00 +0000"),)
 
     def search_emails(self, username: str, password: str, folder: str, criteria: object, limit: int = 50):
         self.calls.append(("search_emails", (username, password, folder, criteria, limit)))
@@ -78,6 +97,30 @@ class FakeReadService:
             "raw_headers": raw_headers[:max_chars] if truncated else raw_headers,
             "truncated": truncated,
         }
+
+    def read_email(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000):
+        self.calls.append(("read_email", (username, password, folder, uid, max_chars)))
+        body = "Hello body"
+        if len(body) > max_chars:
+            body = body[:max_chars]
+        return ReadEmailResult(
+            uid=uid,
+            subject="Hello",
+            from_address="sender@example.com",
+            to="recipient@example.com",
+            date="Thu, 01 Jan 1970 00:00:00 +0000",
+            body_text=body,
+            attachments=(
+                EmailAttachmentSummary(
+                    attachment_id="part-1",
+                    filename="note.txt",
+                    content_type="text/plain",
+                    size_bytes=5,
+                    retrievable=True,
+                    blocked_reason=None,
+                ),
+            ),
+        )
 
 
 class FailingReadService:
@@ -140,6 +183,50 @@ class FakeSendService:
                 "attachments": attachments,
             }
         )
+
+
+def _assert_matches_schema(value: object, schema: dict[str, object]) -> None:
+    expected_type = schema.get("type")
+    if expected_type == "object":
+        assert isinstance(value, dict)
+        required = schema.get("required", [])
+        assert isinstance(required, list)
+        for field in required:
+            assert field in value
+        if schema.get("additionalProperties") is False:
+            properties = schema.get("properties", {})
+            assert isinstance(properties, dict)
+            assert not (set(value) - set(properties))
+        properties = schema.get("properties", {})
+        assert isinstance(properties, dict)
+        for field, field_schema in properties.items():
+            if field in value:
+                assert isinstance(field_schema, dict)
+                _assert_matches_schema(value[field], field_schema)
+        return
+    if expected_type == "array":
+        assert isinstance(value, list)
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for item in value:
+                _assert_matches_schema(item, item_schema)
+        return
+    if isinstance(expected_type, list):
+        assert any(_matches_primitive_type(value, item) for item in expected_type)
+        return
+    assert _matches_primitive_type(value, expected_type)
+
+
+def _matches_primitive_type(value: object, expected_type: object) -> bool:
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "null":
+        return value is None
+    return True
 
 
 def test_folder_tool_schemas_scopes_and_annotations() -> None:
@@ -287,7 +374,7 @@ def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_
         _credentials(),
         request_id="emails-1",
         subject="subject",
-    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+    ) == {"emails": [{"uid": "1", "subject": "Hello", "from_address": "sender@example.com", "date": "Thu, 01 Jan 1970 00:00:00 +0000"}]}
     assert controller.call_tool(
         "get_email_attachment",
         {"folder": "INBOX", "uid": "1", "attachment_id": "part-2"},
@@ -331,7 +418,7 @@ def test_mail_aliases_dispatch_to_existing_read_services(controller_env, tmp_pat
         _credentials(),
         request_id="recent-mail-1",
         subject="subject",
-    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+    ) == {"emails": [{"uid": "1", "subject": "Hello", "from_address": "sender@example.com", "date": "Thu, 01 Jan 1970 00:00:00 +0000"}]}
 
     assert fake_read.calls == [
         (
@@ -386,7 +473,7 @@ def test_get_recent_mail_defaults_to_inbox_first_recent_page(controller_env, tmp
         _credentials(),
         request_id="recent-mail-defaults",
         subject="subject",
-    ) == {"emails": [{"uid": "1", "subject": "Hello"}]}
+    ) == {"emails": [{"uid": "1", "subject": "Hello", "from_address": "sender@example.com", "date": "Thu, 01 Jan 1970 00:00:00 +0000"}]}
 
     assert fake_read.calls == [("list_emails", ("imap-user", "imap-pass", "INBOX", 0, 20))]
 
@@ -405,6 +492,81 @@ def test_search_mail_rejects_invalid_inputs_before_read_service(controller_env, 
         controller.call_tool("search_mail", {"query": "invoice", "unread": "yes"}, _credentials(), request_id="search-mail-unread", subject="subject")
 
     assert fake_read.calls == []
+
+
+def test_controller_rejects_invalid_top_level_arguments_before_services(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_read = FakeReadService()
+    fake_send = FakeSendService()
+    fake_write = FakeWriteService()
+    controller.read_service = fake_read
+    controller.send_service = fake_send
+    controller.write_service = fake_write
+
+    with pytest.raises(InvalidInputError, match="uid is required"):
+        controller.call_tool("read_email", {"folder": "INBOX"}, _credentials(), request_id="read-missing", subject="subject")
+    with pytest.raises(InvalidInputError, match="to_addresses must be an array"):
+        controller.call_tool(
+            "send_email",
+            {"to_addresses": "bob@example.com", "subject": "Subject", "body_text": "Body"},
+            _credentials(),
+            request_id="send-bad-recipients",
+            subject="subject",
+        )
+    with pytest.raises(InvalidInputError, match="is_read must be a boolean"):
+        controller.call_tool(
+            "mark_read_state",
+            {"folder": "INBOX", "uid": "1", "is_read": "yes"},
+            _credentials(),
+            request_id="mark-bad-bool",
+            subject="subject",
+        )
+    with pytest.raises(InvalidInputError, match="tool arguments must be an object"):
+        controller.call_tool("list_folders", [], _credentials(), request_id="args-array", subject="subject")  # type: ignore[arg-type]
+
+    assert fake_read.calls == []
+    assert fake_send.calls == []
+    assert fake_write.calls == []
+
+
+def test_tool_results_conform_to_advertised_output_schemas(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    controller.read_service = FakeReadService()
+    controller.send_service = FakeSendService()
+    controller.write_service = FakeWriteService()
+    calls = {
+        "list_folders": {},
+        "search_emails": {"folder": "INBOX", "criteria": {"type": "text", "value": "hello"}},
+        "search_mail": {"query": "hello"},
+        "list_emails": {"folder": "INBOX"},
+        "get_recent_mail": {},
+        "read_email": {"folder": "INBOX", "uid": "1"},
+        "get_email_headers": {"folder": "INBOX", "uid": "1"},
+        "get_email_attachment": {"folder": "INBOX", "uid": "1", "attachment_id": "part-1"},
+        "get_sender_identity": {},
+        "send_email": {"to_addresses": ["bob@example.com"], "subject": "Subject", "body_text": "Body"},
+        "send_mail": {"to_addresses": ["bob@example.com"], "subject": "Subject", "body_text": "Body"},
+        "mark_read_state": {"folder": "INBOX", "uid": "1", "is_read": True},
+        "move_email": {"source_folder": "INBOX", "target_folder": "Archive", "uid": "1"},
+        "copy_email": {"source_folder": "INBOX", "target_folder": "Archive", "uid": "1"},
+        "delete_email_permanent": {"folder": "INBOX", "uid": "1"},
+        "move_to_trash": {"source_folder": "INBOX", "uid": "1"},
+        "empty_trash": {},
+        "create_folder": {"folder": "New"},
+        "rename_folder": {"source_folder": "New", "target_folder": "Renamed"},
+        "delete_folder": {"folder": "Renamed"},
+    }
+
+    for name, args in calls.items():
+        result = controller.call_tool(name, args, _credentials(), request_id=f"schema-{name}", subject="subject")
+        _assert_matches_schema(result, OUTPUT_SCHEMAS[name])
+
+
+def test_output_schema_helper_rejects_malformed_content() -> None:
+    with pytest.raises(AssertionError):
+        _assert_matches_schema({"sent": "yes"}, OUTPUT_SCHEMAS["send_email"])
 
 
 def test_folder_tool_dispatch_uses_session_credentials(controller_env, tmp_path) -> None:

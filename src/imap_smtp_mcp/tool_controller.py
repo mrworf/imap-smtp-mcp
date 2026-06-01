@@ -511,7 +511,10 @@ class MailToolController:
     def call_tool(self, name: str, arguments: dict[str, Any], credentials: MailCredentials, *, request_id: str, subject: str) -> Any:
         if name not in TOOL_SCHEMAS:
             raise InvalidInputError(f"Unknown tool: {name}")
+        if not isinstance(arguments, dict):
+            raise InvalidInputError("tool arguments must be an object")
         try:
+            _validate_tool_arguments(name, arguments)
             result = self._dispatch(name, arguments, credentials, request_id=request_id, subject=subject)
             json_result = _jsonify(result)
             self.audit_logger.log_tool_invocation(AuditEvent(request_id=request_id, mcp_user=subject, operation=name, success=True, arguments=arguments, result=json_result))
@@ -527,24 +530,25 @@ class MailToolController:
         if name == "list_folders":
             return {"folders": self.read_service.list_folders(c.imap_username, c.imap_password)}
         if name == "search_emails":
-            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, str(args["folder"]), args["criteria"], int(args.get("limit", 50)))}
+            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), args["criteria"], _optional_int(args, "limit", 50))}
         if name == "search_mail":
             criteria = _search_mail_criteria(args)
-            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), criteria, int(args.get("limit", 25)))}
+            return {"uids": self.read_service.search_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), criteria, _optional_int(args, "limit", 25))}
         if name == "list_emails":
-            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, str(args["folder"]), int(args.get("offset", 0)), int(args.get("limit", 20)))}
+            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _optional_int(args, "offset", 0), _optional_int(args, "limit", 20))}
         if name == "get_recent_mail":
-            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), int(args.get("offset", 0)), int(args.get("limit", 20)))}
+            return {"emails": self.read_service.list_emails(c.imap_username, c.imap_password, _optional_str(args, "folder", "INBOX"), _optional_int(args, "offset", 0), _optional_int(args, "limit", 20))}
         if name == "read_email":
-            result = self.read_service.read_email(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), int(args.get("max_chars", 20000)))
+            max_chars = _optional_int(args, "max_chars", 20000)
+            result = self.read_service.read_email(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _required_raw_str(args, "uid"), max_chars)
             out = _jsonify(result)
-            out["truncated"] = len(result.body_text) >= int(args.get("max_chars", 20000))
+            out["truncated"] = len(result.body_text) >= max_chars
             return out
         if name == "get_email_headers":
-            result = self.read_service.get_email_headers(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), int(args.get("max_chars", 20000)))
+            result = self.read_service.get_email_headers(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _required_raw_str(args, "uid"), _optional_int(args, "max_chars", 20000))
             return _jsonify(result)
         if name == "get_email_attachment":
-            return self.read_service.get_email_attachment(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), str(args["attachment_id"]))
+            return self.read_service.get_email_attachment(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _required_raw_str(args, "uid"), _required_raw_str(args, "attachment_id"))
         if name == "get_sender_identity":
             if not c.sender_email:
                 raise AuthSessionError("Sender identity is missing; reauthorize to view sender identity")
@@ -565,41 +569,41 @@ class MailToolController:
                 c.imap_username,
                 c.imap_password,
                 c.sender_email,
-                tuple(str(v) for v in args["to_addresses"]),
-                str(args["subject"]),
-                str(args["body_text"]),
+                tuple(_required_list_of_str(args, "to_addresses")),
+                _required_raw_str(args, "subject"),
+                _required_raw_str(args, "body_text"),
                 from_display_name=c.sender_display_name,
                 reply_to_address=c.sender_email if reply_to_override else None,
-                append_to_sent=bool(args.get("append_to_sent", True)),
+                append_to_sent=_optional_bool(args, "append_to_sent", True),
                 attachments=attachments,
             )
             return {"sent": True}
         if name == "mark_read_state":
-            self.write_service.mark_read_state(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), bool(args["is_read"]))
+            self.write_service.mark_read_state(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _required_raw_str(args, "uid"), _required_bool(args, "is_read"))
             return {"updated": True}
         if name == "move_email":
-            self.write_service.move_email(c.imap_username, c.imap_password, str(args["source_folder"]), str(args["target_folder"]), str(args["uid"]))
+            self.write_service.move_email(c.imap_username, c.imap_password, _required_raw_str(args, "source_folder"), _required_raw_str(args, "target_folder"), _required_raw_str(args, "uid"))
             return {"moved": True}
         if name == "copy_email":
-            self.write_service.copy_email(c.imap_username, c.imap_password, str(args["source_folder"]), str(args["target_folder"]), str(args["uid"]))
+            self.write_service.copy_email(c.imap_username, c.imap_password, _required_raw_str(args, "source_folder"), _required_raw_str(args, "target_folder"), _required_raw_str(args, "uid"))
             return {"copied": True}
         if name == "delete_email_permanent":
-            self.write_service.delete_email_permanent(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]))
+            self.write_service.delete_email_permanent(c.imap_username, c.imap_password, _required_raw_str(args, "folder"), _required_raw_str(args, "uid"))
             return {"deleted": True}
         if name == "move_to_trash":
-            self.write_service.move_to_trash(c.imap_username, c.imap_password, str(args["source_folder"]), str(args["uid"]))
+            self.write_service.move_to_trash(c.imap_username, c.imap_password, _required_raw_str(args, "source_folder"), _required_raw_str(args, "uid"))
             return {"trashed": True}
         if name == "empty_trash":
             self.write_service.empty_trash(c.imap_username, c.imap_password)
             return {"emptied": True}
         if name == "create_folder":
-            self.write_service.create_folder(c.imap_username, c.imap_password, str(args["folder"]))
+            self.write_service.create_folder(c.imap_username, c.imap_password, _required_raw_str(args, "folder"))
             return {"created": True}
         if name == "rename_folder":
-            self.write_service.rename_folder(c.imap_username, c.imap_password, str(args["source_folder"]), str(args["target_folder"]))
+            self.write_service.rename_folder(c.imap_username, c.imap_password, _required_raw_str(args, "source_folder"), _required_raw_str(args, "target_folder"))
             return {"renamed": True}
         if name == "delete_folder":
-            self.write_service.delete_folder(c.imap_username, c.imap_password, str(args["folder"]))
+            self.write_service.delete_folder(c.imap_username, c.imap_password, _required_raw_str(args, "folder"))
             return {"deleted": True}
         raise InvalidInputError(f"Unknown tool: {name}")
 
@@ -637,6 +641,44 @@ def _required_str(args: dict[str, Any], name: str) -> str:
     return normalized
 
 
+def _required_raw_str(args: dict[str, Any], name: str) -> str:
+    value = args.get(name)
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{name} is required")
+    return value
+
+
+def _required_bool(args: dict[str, Any], name: str) -> bool:
+    value = args.get(name)
+    if not isinstance(value, bool):
+        raise InvalidInputError(f"{name} must be a boolean")
+    return value
+
+
+def _optional_bool(args: dict[str, Any], name: str, default: bool) -> bool:
+    if name not in args:
+        return default
+    return _required_bool(args, name)
+
+
+def _optional_int(args: dict[str, Any], name: str, default: int) -> int:
+    if name not in args:
+        return default
+    value = args[name]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidInputError(f"{name} must be an integer")
+    return value
+
+
+def _required_list_of_str(args: dict[str, Any], name: str) -> list[str]:
+    value = args.get(name)
+    if not isinstance(value, list):
+        raise InvalidInputError(f"{name} must be an array")
+    if not all(isinstance(item, str) for item in value):
+        raise InvalidInputError(f"{name} must contain only strings")
+    return value
+
+
 def _optional_str(args: dict[str, Any], name: str, default: str) -> str:
     if name not in args:
         return default
@@ -672,6 +714,42 @@ def _search_mail_criteria(args: dict[str, Any]) -> dict[str, Any]:
     if len(criteria) == 1:
         return criteria[0]
     return {"and": criteria}
+
+
+def _validate_tool_arguments(name: str, args: dict[str, Any]) -> None:
+    schema = TOOL_SCHEMAS[name]
+    for field in schema.get("required", []):
+        if field not in args:
+            raise InvalidInputError(f"{field} is required")
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return
+    for field, value in args.items():
+        field_schema = properties.get(field)
+        if not isinstance(field_schema, dict) or "type" not in field_schema:
+            continue
+        _validate_top_level_type(field, value, field_schema["type"])
+
+
+def _validate_top_level_type(field: str, value: Any, expected_type: Any) -> None:
+    if expected_type == "string":
+        if not isinstance(value, str):
+            raise InvalidInputError(f"{field} must be a string")
+        return
+    if expected_type == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise InvalidInputError(f"{field} must be an integer")
+        return
+    if expected_type == "boolean":
+        if not isinstance(value, bool):
+            raise InvalidInputError(f"{field} must be a boolean")
+        return
+    if expected_type == "array":
+        if not isinstance(value, list):
+            raise InvalidInputError(f"{field} must be an array")
+        return
+    if expected_type == "object" and not isinstance(value, dict):
+        raise InvalidInputError(f"{field} must be an object")
 
 
 def _safe_optional(value: Any) -> str | None:
