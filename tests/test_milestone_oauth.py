@@ -3,12 +3,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import threading
 import time
 
 import pytest
 
 from imap_smtp_mcp.config import ConfigError, load_config
-from imap_smtp_mcp.oauth import CredentialSession, CredentialVault, MailCredentials, OAuthError, OAuthService, TokenClaims
+from imap_smtp_mcp.oauth import CredentialSession, CredentialVault, MailCredentials, OAuthClient, OAuthError, OAuthService, OAuthStore, RefreshTokenRecord, TokenClaims
 
 
 def _challenge(verifier: str) -> str:
@@ -68,6 +69,56 @@ def test_oauth_metadata_and_dcr(oauth_env):
 
     client = service.register_client({"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
     assert client["client_id"].startswith("client-")
+
+
+def test_oauth_store_serializes_concurrent_access(oauth_env):
+    config = load_config()
+    store = OAuthStore(config.oauth.store_path)
+    errors: list[BaseException] = []
+
+    def worker(index: int) -> None:
+        try:
+            client = OAuthClient(
+                client_id=f"client-{index}",
+                redirect_uris=("https://chatgpt.com/connector/oauth/cb",),
+                client_name=f"Client {index}",
+            )
+            session = CredentialSession(
+                session_id=f"session-{index}",
+                subject=f"user-{index}",
+                scopes=("mail:read",),
+                created_at=index,
+                encrypted_credentials=f"encrypted-{index}",
+            )
+            refresh = RefreshTokenRecord(
+                token_hash=f"refresh-{index}",
+                client_id=client.client_id,
+                session_id=session.session_id,
+                subject=session.subject,
+                scopes=session.scopes,
+                expires_at=int(time.time()) + 3600,
+            )
+            store.save_client(client)
+            store.save_session(session)
+            store.save_refresh_token(refresh)
+            assert store.get_client(client.client_id) == client
+            assert store.get_session(session.session_id) == session
+            assert store.get_refresh_token(refresh.token_hash) == refresh
+            store.revoke_refresh_token(refresh.token_hash)
+            assert store.get_refresh_token(refresh.token_hash).revoked is True  # type: ignore[union-attr]
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    store.cleanup_expired(now=int(time.time()) + 7200)
+    store.close()
+
+    assert errors == []
 
 
 def test_oauth_metadata_includes_configured_disclosure_links(oauth_env, monkeypatch):

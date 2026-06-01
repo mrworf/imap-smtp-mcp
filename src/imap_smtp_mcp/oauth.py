@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -203,94 +204,101 @@ class CredentialVault:
 class OAuthStore:
     def __init__(self, path: str) -> None:
         self.path = path
+        self._lock = threading.RLock()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._migrate()
 
     def _migrate(self) -> None:
-        self._conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS oauth_clients (
-                client_id TEXT PRIMARY KEY,
-                redirect_uris TEXT NOT NULL,
-                client_name TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS authorization_codes (
-                code TEXT PRIMARY KEY,
-                client_id TEXT NOT NULL,
-                redirect_uri TEXT NOT NULL,
-                code_challenge TEXT NOT NULL,
-                code_challenge_method TEXT NOT NULL,
-                scope TEXT NOT NULL,
-                resource TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                expires_at INTEGER NOT NULL,
-                used INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS credential_sessions (
-                session_id TEXT PRIMARY KEY,
-                subject TEXT NOT NULL,
-                scopes TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                encrypted_credentials TEXT NOT NULL,
-                revoked INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS refresh_tokens (
-                token_hash TEXT PRIMARY KEY,
-                client_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                scopes TEXT NOT NULL,
-                expires_at INTEGER NOT NULL,
-                revoked INTEGER NOT NULL DEFAULT 0
-            );
-            """
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS oauth_clients (
+                    client_id TEXT PRIMARY KEY,
+                    redirect_uris TEXT NOT NULL,
+                    client_name TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS authorization_codes (
+                    code TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    redirect_uri TEXT NOT NULL,
+                    code_challenge TEXT NOT NULL,
+                    code_challenge_method TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    resource TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS credential_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    subject TEXT NOT NULL,
+                    scopes TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    encrypted_credentials TEXT NOT NULL,
+                    revoked INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    scopes TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    revoked INTEGER NOT NULL DEFAULT 0
+                );
+                """
+            )
+            self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def save_client(self, client: OAuthClient) -> None:
-        self._conn.execute(
-            "INSERT OR REPLACE INTO oauth_clients (client_id, redirect_uris, client_name) VALUES (?, ?, ?)",
-            (client.client_id, json.dumps(list(client.redirect_uris)), client.client_name),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO oauth_clients (client_id, redirect_uris, client_name) VALUES (?, ?, ?)",
+                (client.client_id, json.dumps(list(client.redirect_uris)), client.client_name),
+            )
+            self._conn.commit()
 
     def get_client(self, client_id: str) -> OAuthClient | None:
-        row = self._conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (client_id,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (client_id,)).fetchone()
         if row is None:
             return None
         return OAuthClient(client_id=row["client_id"], redirect_uris=tuple(json.loads(row["redirect_uris"])), client_name=row["client_name"])
 
     def save_code(self, code: AuthorizationCode) -> None:
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO authorization_codes
-            (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, resource, session_id, subject, expires_at, used)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                code.code,
-                code.client_id,
-                code.redirect_uri,
-                code.code_challenge,
-                code.code_challenge_method,
-                " ".join(code.scope),
-                code.resource,
-                code.session_id,
-                code.subject,
-                code.expires_at,
-                int(code.used),
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO authorization_codes
+                (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, resource, session_id, subject, expires_at, used)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    code.code,
+                    code.client_id,
+                    code.redirect_uri,
+                    code.code_challenge,
+                    code.code_challenge_method,
+                    " ".join(code.scope),
+                    code.resource,
+                    code.session_id,
+                    code.subject,
+                    code.expires_at,
+                    int(code.used),
+                ),
+            )
+            self._conn.commit()
 
     def get_code(self, code: str) -> AuthorizationCode | None:
-        row = self._conn.execute("SELECT * FROM authorization_codes WHERE code = ?", (code,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM authorization_codes WHERE code = ?", (code,)).fetchone()
         if row is None:
             return None
         return AuthorizationCode(
@@ -308,23 +316,26 @@ class OAuthStore:
         )
 
     def mark_code_used(self, code: str) -> bool:
-        cursor = self._conn.execute("UPDATE authorization_codes SET used = 1 WHERE code = ? AND used = 0", (code,))
-        self._conn.commit()
-        return cursor.rowcount == 1
+        with self._lock:
+            cursor = self._conn.execute("UPDATE authorization_codes SET used = 1 WHERE code = ? AND used = 0", (code,))
+            self._conn.commit()
+            return cursor.rowcount == 1
 
     def save_session(self, session: CredentialSession) -> None:
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO credential_sessions
-            (session_id, subject, scopes, created_at, encrypted_credentials, revoked)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (session.session_id, session.subject, " ".join(session.scopes), session.created_at, session.encrypted_credentials, int(session.revoked)),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO credential_sessions
+                (session_id, subject, scopes, created_at, encrypted_credentials, revoked)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (session.session_id, session.subject, " ".join(session.scopes), session.created_at, session.encrypted_credentials, int(session.revoked)),
+            )
+            self._conn.commit()
 
     def get_session(self, session_id: str) -> CredentialSession | None:
-        row = self._conn.execute("SELECT * FROM credential_sessions WHERE session_id = ?", (session_id,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM credential_sessions WHERE session_id = ?", (session_id,)).fetchone()
         if row is None:
             return None
         return CredentialSession(
@@ -337,22 +348,25 @@ class OAuthStore:
         )
 
     def revoke_session(self, session_id: str) -> None:
-        self._conn.execute("UPDATE credential_sessions SET revoked = 1 WHERE session_id = ?", (session_id,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("UPDATE credential_sessions SET revoked = 1 WHERE session_id = ?", (session_id,))
+            self._conn.commit()
 
     def save_refresh_token(self, token: RefreshTokenRecord) -> None:
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO refresh_tokens
-            (token_hash, client_id, session_id, subject, scopes, expires_at, revoked)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (token.token_hash, token.client_id, token.session_id, token.subject, " ".join(token.scopes), token.expires_at, int(token.revoked)),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO refresh_tokens
+                (token_hash, client_id, session_id, subject, scopes, expires_at, revoked)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (token.token_hash, token.client_id, token.session_id, token.subject, " ".join(token.scopes), token.expires_at, int(token.revoked)),
+            )
+            self._conn.commit()
 
     def get_refresh_token(self, token_hash: str) -> RefreshTokenRecord | None:
-        row = self._conn.execute("SELECT * FROM refresh_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM refresh_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
         if row is None:
             return None
         return RefreshTokenRecord(
@@ -366,14 +380,16 @@ class OAuthStore:
         )
 
     def revoke_refresh_token(self, token_hash: str) -> None:
-        self._conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?", (token_hash,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?", (token_hash,))
+            self._conn.commit()
 
     def cleanup_expired(self, now: int | None = None) -> None:
         cutoff = int(time.time()) if now is None else now
-        self._conn.execute("DELETE FROM authorization_codes WHERE expires_at <= ?", (cutoff,))
-        self._conn.execute("DELETE FROM refresh_tokens WHERE expires_at <= ?", (cutoff,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM authorization_codes WHERE expires_at <= ?", (cutoff,))
+            self._conn.execute("DELETE FROM refresh_tokens WHERE expires_at <= ?", (cutoff,))
+            self._conn.commit()
 
 
 ImapVerifier = Callable[[str, str], None]

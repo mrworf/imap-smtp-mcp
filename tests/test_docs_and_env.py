@@ -58,6 +58,14 @@ def test_documentation_links_are_current_and_not_redundant() -> None:
     assert not (ROOT / "docs/milestone6.md").exists()
 
 
+def test_deployment_docs_capture_architecture_design_choices() -> None:
+    deployment = _read(ROOT / "docs/deployment.md")
+
+    assert "captured outbound sender email must be accepted by the configured SMTP backend" in deployment
+    assert "deliberate low-dependency design choice" in deployment
+    assert "serializes in-process SQLite access with a narrow lock" in deployment
+
+
 def test_integration_guide_tracks_supported_and_untested_clients() -> None:
     integrations = _read(ROOT / "INTEGRATIONS.md")
 

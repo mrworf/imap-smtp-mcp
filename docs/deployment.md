@@ -89,7 +89,7 @@ OAUTH_STORE_PATH=/var/lib/imap-smtp-mcp/oauth.sqlite3
 
 Mailbox credentials are encrypted before storage with `OAUTH_ENCRYPTION_KEY`. Refresh tokens are stored as keyed hashes, not plaintext. Keep `APP_DATA_DIR` on persistent storage so ChatGPT clients and sessions survive container restarts.
 
-Multi-replica deployments require a shared store/volume and are not otherwise optimized in this pass.
+SQLite is an intentional dependency choice for the single-process, self-hosted runtime profile. The OAuth store serializes in-process SQLite access with a narrow lock, but multi-replica deployments require a shared store/volume and are not otherwise optimized in this pass. If production evidence shows SQLite lock contention, the next step is a small store-level change such as per-operation connections or WAL tuning rather than a broad database abstraction.
 
 ## OAuth secrets
 Set unique production secrets:
@@ -124,7 +124,10 @@ The server also rate-limits registration and authorize POST attempts locally, an
 
 During OAuth authorization, users also confirm the display name and outbound email address that the server will use for sent mail. Set `SMTP_FROM_DOMAIN=example.com` to let the form suggest `smtp_username@example.com` when the SMTP username is only a local part; usernames that already contain `@` are copied as-is. Users may edit the suggested outbound address before authorizing.
 
-After authorization, MCP callers cannot choose `From` or `Reply-To`. `send_email` always uses the captured sender identity, and any caller-supplied sender or reply-to fields are ignored for delivery and recorded in audit metadata with the requested and actual values.
+After authorization, MCP callers cannot choose `From` or `Reply-To`. `send_email` always uses the captured sender identity, and any caller-supplied sender or reply-to fields are ignored for delivery and recorded in audit metadata with the requested and actual values. The captured outbound sender email must be accepted by the configured SMTP backend; some providers reject or rewrite sender identities that are syntactically valid but not authorized for that SMTP account.
+
+## HTTP and OAuth ownership
+The built-in HTTP and OAuth implementation is a deliberate low-dependency design choice for the current compatibility surface. The project owns the small HTTP router, Dynamic Client Registration, authorization-code + PKCE flow, CSRF form protection, token signing, and refresh-token rotation directly. That choice may change if OAuth or MCP interoperability work becomes a major maintenance stream; an ASGI framework or maintained OAuth/JWT library would be the likely direction if the benefits outweigh the current deployment simplicity.
 
 For short troubleshooting windows, set `MCP_DEBUG_UNREDACTED_LOGS=true`. The OAuth authorization page warns users that debug logging is enabled. Audit logs then include sanitized tool arguments/results, email subjects and bodies, and tracebacks for unexpected failures; password, token, key, secret, and authorization fields remain redacted. Keep this disabled in production.
 
