@@ -17,6 +17,7 @@ class FakeImapClient:
         self.created_folder: str | None = None
         self.renamed_folder: tuple[str, str] | None = None
         self.deleted_folder: str | None = None
+        self.logout_calls = 0
 
     def login(self, user, password):
         return "OK", []
@@ -47,6 +48,10 @@ class FakeImapClient:
     def delete(self, folder):
         self.deleted_folder = folder
         return "OK", []
+
+    def logout(self):
+        self.logout_calls += 1
+        return "BYE", []
 
     def uid(self, op, *args):
         self.calls.append((op, args))
@@ -101,6 +106,30 @@ def service(monkeypatch):
 
 def test_mark_read_state(service):
     service.mark_read_state("u", "p", "Inbox", "42", True)
+
+
+def test_write_tools_logout_after_success_and_failure(monkeypatch):
+    _env(monkeypatch)
+    cfg = load_config()
+    client = FakeImapClient()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: client), cfg)
+
+    svc.mark_read_state("u", "p", "Inbox", "42", True)
+
+    assert client.logout_calls == 1
+
+    class SelectFails(FakeImapClient):
+        def select(self, folder):
+            super().select(folder)
+            return "NO", []
+
+    failing_client = SelectFails()
+    svc = WriteMailboxService(ImapAdapter(cfg, imap_ssl_factory=lambda h, p, *, ssl_context: failing_client), cfg)
+
+    with pytest.raises(NotFoundError, match="Folder not found"):
+        svc.mark_read_state("u", "p", "Inbox", "42", True)
+
+    assert failing_client.logout_calls == 1
 
 
 def test_move_and_copy_and_delete_and_trash(service):

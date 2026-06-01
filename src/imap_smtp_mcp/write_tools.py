@@ -49,10 +49,10 @@ class WriteMailboxService:
         self._enforce_action("create_folder")
         folder_name = self._validate_single_line("folder", folder)
         try:
-            client = self._imap_adapter.connect(username, password)
-            status, _ = client.create(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise BackendUnavailableError("Failed to create folder")
+            with self._imap_adapter.session(username, password) as client:
+                status, _ = client.create(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise BackendUnavailableError("Failed to create folder")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -61,12 +61,12 @@ class WriteMailboxService:
         src = self._validate_single_line("source_folder", source_folder)
         dst = self._validate_single_line("target_folder", target_folder)
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._ensure_folder_exists(client, src)
-            self._ensure_folder_absent(client, dst)
-            status, _ = client.rename(encode_mailbox_name(src), encode_mailbox_name(dst))
-            if status != "OK":
-                raise BackendUnavailableError("Failed to rename folder")
+            with self._imap_adapter.session(username, password) as client:
+                self._ensure_folder_exists(client, src)
+                self._ensure_folder_absent(client, dst)
+                status, _ = client.rename(encode_mailbox_name(src), encode_mailbox_name(dst))
+                if status != "OK":
+                    raise BackendUnavailableError("Failed to rename folder")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -74,11 +74,11 @@ class WriteMailboxService:
         self._enforce_action("delete_folder")
         folder_name = self._validate_single_line("folder", folder)
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._ensure_folder_exists(client, folder_name)
-            status, _ = client.delete(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise BackendUnavailableError("Failed to delete folder")
+            with self._imap_adapter.session(username, password) as client:
+                self._ensure_folder_exists(client, folder_name)
+                status, _ = client.delete(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise BackendUnavailableError("Failed to delete folder")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -88,12 +88,12 @@ class WriteMailboxService:
         uid_value = validate_single_message_uid("uid", uid)
         flag_op = "+FLAGS" if is_read else "-FLAGS"
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._select_folder(client, folder_name)
-            self._ensure_uid_exists(client, uid_value)
-            status, _ = client.uid("store", uid_value, flag_op, "(\\Seen)")
-            if status != "OK":
-                raise NotFoundError(f"Email not found: {uid_value}")
+            with self._imap_adapter.session(username, password) as client:
+                self._select_folder(client, folder_name)
+                self._ensure_uid_exists(client, uid_value)
+                status, _ = client.uid("store", uid_value, flag_op, "(\\Seen)")
+                if status != "OK":
+                    raise NotFoundError(f"Email not found: {uid_value}")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -110,20 +110,20 @@ class WriteMailboxService:
         dst = self._validate_single_line("target_folder", target_folder)
         uid_value = validate_single_message_uid("uid", uid)
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._select_folder(client, src)
-            self._ensure_uid_exists(client, uid_value)
-            self._ensure_folder_exists(client, dst)
-            status, _ = client.uid("copy", uid_value, encode_mailbox_name(dst))
-            if status != "OK":
-                raise BackendUnavailableError("Failed to copy email")
-            if is_move:
-                delete_status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
-                if delete_status != "OK":
-                    raise BackendUnavailableError("Failed to mark email deleted after copy")
-                expunge_status, _ = client.expunge()
-                if expunge_status != "OK":
-                    raise BackendUnavailableError("Failed to expunge moved email")
+            with self._imap_adapter.session(username, password) as client:
+                self._select_folder(client, src)
+                self._ensure_uid_exists(client, uid_value)
+                self._ensure_folder_exists(client, dst)
+                status, _ = client.uid("copy", uid_value, encode_mailbox_name(dst))
+                if status != "OK":
+                    raise BackendUnavailableError("Failed to copy email")
+                if is_move:
+                    delete_status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
+                    if delete_status != "OK":
+                        raise BackendUnavailableError("Failed to mark email deleted after copy")
+                    expunge_status, _ = client.expunge()
+                    if expunge_status != "OK":
+                        raise BackendUnavailableError("Failed to expunge moved email")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -132,15 +132,15 @@ class WriteMailboxService:
         folder_name = self._validate_single_line("folder", folder)
         uid_value = validate_single_message_uid("uid", uid)
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._select_folder(client, folder_name)
-            self._ensure_uid_exists(client, uid_value)
-            status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
-            if status != "OK":
-                raise NotFoundError(f"Email not found: {uid_value}")
-            expunge_status, _ = client.expunge()
-            if expunge_status != "OK":
-                raise BackendUnavailableError("Failed to expunge deleted email")
+            with self._imap_adapter.session(username, password) as client:
+                self._select_folder(client, folder_name)
+                self._ensure_uid_exists(client, uid_value)
+                status, _ = client.uid("store", uid_value, "+FLAGS", "(\\Deleted)")
+                if status != "OK":
+                    raise NotFoundError(f"Email not found: {uid_value}")
+                expunge_status, _ = client.expunge()
+                if expunge_status != "OK":
+                    raise BackendUnavailableError("Failed to expunge deleted email")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc
 
@@ -151,18 +151,18 @@ class WriteMailboxService:
     def empty_trash(self, username: str, password: str) -> None:
         self._enforce_action("empty_trash")
         try:
-            client = self._imap_adapter.connect(username, password)
-            self._select_folder(client, self._config.trash_folder)
-            status, data = client.uid("search", None, "ALL")
-            if status != "OK":
-                raise BackendUnavailableError("Failed to list trash emails")
-            ids = data[0].decode("utf-8").split() if data and data[0] else []
-            if ids:
-                mark_status, _ = client.uid("store", ",".join(ids), "+FLAGS", "(\\Deleted)")
-                if mark_status != "OK":
-                    raise BackendUnavailableError("Failed to mark trash emails deleted")
-            expunge_status, _ = client.expunge()
-            if expunge_status != "OK":
-                raise BackendUnavailableError("Failed to expunge trash")
+            with self._imap_adapter.session(username, password) as client:
+                self._select_folder(client, self._config.trash_folder)
+                status, data = client.uid("search", None, "ALL")
+                if status != "OK":
+                    raise BackendUnavailableError("Failed to list trash emails")
+                ids = data[0].decode("utf-8").split() if data and data[0] else []
+                if ids:
+                    mark_status, _ = client.uid("store", ",".join(ids), "+FLAGS", "(\\Deleted)")
+                    if mark_status != "OK":
+                        raise BackendUnavailableError("Failed to mark trash emails deleted")
+                expunge_status, _ = client.expunge()
+                if expunge_status != "OK":
+                    raise BackendUnavailableError("Failed to expunge trash")
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable") from exc

@@ -47,6 +47,16 @@ def test_read_email_not_found_shape() -> None:
         def connect(self, username: str, password: str):
             return MissingClient()
 
+        def session(self, username: str, password: str):
+            class Session:
+                def __enter__(self):
+                    return MissingClient()
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+            return Session()
+
     service = ReadOnlyMailboxService(Adapter())
     try:
         service.read_email("u", "p", folder="INBOX", uid="99")

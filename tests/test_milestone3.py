@@ -15,6 +15,7 @@ class FakeMailboxClient:
         self.uid_calls = []
         self.fetch_calls = []
         self.selected_folders = []
+        self.logout_calls = 0
         self.raw_headers = {
             "8": b"Subject: Raw Headers\r\nReceived: from one.example\r\nReceived: from two.example\r\nX-Folded: first\r\n second line\r\n\r\n",
         }
@@ -118,6 +119,10 @@ class FakeMailboxClient:
 
     def list(self):
         return ("OK", [b'(\\HasNoChildren) "/" "INBOX"'])
+
+    def logout(self):
+        self.logout_calls += 1
+        return ("BYE", [])
 
     def select(self, folder):
         self.selected_folders.append(folder)
@@ -275,6 +280,31 @@ def test_list_emails_offset_beyond_mailbox_without_fetch(base_env):
 
     assert client.fetch_calls == []
     assert client.uid_calls == []
+
+
+def test_read_tools_logout_after_success_and_failure(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    service.read_email("u", "p", "INBOX", "1")
+
+    assert client.logout_calls == 1
+
+    class SelectFails(FakeMailboxClient):
+        def select(self, folder):
+            super().select(folder)
+            return ("NO", [])
+
+    failing_client = SelectFails()
+    service = ReadOnlyMailboxService(
+        ImapAdapter(config=config, imap_ssl_factory=lambda h, p, *, ssl_context: failing_client),
+        config=config,
+    )
+
+    with pytest.raises(NotFoundError, match="Folder not found"):
+        service.read_email("u", "p", "INBOX", "1")
+
+    assert failing_client.logout_calls == 1
 
 
 def test_read_email_strips_non_visible_html_content(base_env):

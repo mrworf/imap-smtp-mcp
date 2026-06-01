@@ -78,17 +78,15 @@ class SendEmailService:
             msg.add_attachment(attachment.content, maintype=maintype, subtype=subtype, filename=attachment.filename)
 
         try:
-            smtp_client = self._smtp_adapter.connect(smtp_username, smtp_password)
-            smtp_client.send_message(msg)
-            smtp_client.quit()
+            with self._smtp_adapter.session(smtp_username, smtp_password) as smtp_client:
+                smtp_client.send_message(msg)
         except SmtpAdapterError as exc:
             raise BackendUnavailableError("SMTP backend unavailable") from exc
 
         if append_to_sent:
             try:
-                imap_client = self._imap_adapter.connect(imap_username, imap_password)
-                imap_client.append(encode_mailbox_name(self._config.sent_folder), None, None, msg.as_bytes())
-                imap_client.logout()
+                with self._imap_adapter.session(imap_username, imap_password) as imap_client:
+                    imap_client.append(encode_mailbox_name(self._config.sent_folder), None, None, msg.as_bytes())
             except Exception as exc:
                 raise BackendUnavailableError("Email sent but failed to append to sent folder") from exc
 

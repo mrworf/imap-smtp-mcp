@@ -3,7 +3,8 @@ from __future__ import annotations
 import smtplib
 import socket
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from email.message import EmailMessage
 
 from .config import AppConfig, ProtocolMode
@@ -77,3 +78,16 @@ class SmtpAdapter:
             raise SmtpTlsError("SMTP TLS verification failed") from exc
         except (smtplib.SMTPException, OSError, socket.timeout) as exc:
             raise SmtpConnectionError("Unable to establish SMTP connection") from exc
+
+    @contextmanager
+    def session(self, username: str, password: str) -> Iterator[SmtpClient]:
+        client = self.connect(username, password)
+        try:
+            yield client
+        finally:
+            quit_client = getattr(client, "quit", None)
+            if callable(quit_client):
+                try:
+                    quit_client()
+                except Exception:
+                    pass

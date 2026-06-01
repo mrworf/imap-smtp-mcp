@@ -457,14 +457,13 @@ class ReadOnlyMailboxService:
 
     def list_folders(self, username: str, password: str) -> tuple[str, ...]:
         self._enforce_action("list_folders")
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "list"
+                return self._imap_adapter.list_folders(client)
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect"}) from exc
-        try:
-            return self._imap_adapter.list_folders(client)
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "list"}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase}) from exc
 
     def search_emails(self, username: str, password: str, folder: str, criteria: Any, limit: int = 50) -> tuple[str, ...]:
         self._enforce_action("search_emails")
@@ -474,21 +473,20 @@ class ReadOnlyMailboxService:
         search_args = _search_arguments(criteria)
         criteria_text = json.dumps(criteria, sort_keys=True, separators=(",", ":"))
 
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "search"
+                status, _ = client.select(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise NotFoundError(f"Folder not found: {folder_name}")
+                status, ids = client.uid("search", None, *search_args)
+                if status != "OK":
+                    raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)})
+                all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
+                return tuple(all_ids[:limit])
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)}) from exc
-        try:
-            status, _ = client.select(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise NotFoundError(f"Folder not found: {folder_name}")
-            status, ids = client.uid("search", None, *search_args)
-            if status != "OK":
-                raise BackendUnavailableError("IMAP search failed", metadata={"imap_phase": "search", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)})
-            all_ids = ids[0].decode("utf-8").split() if ids and ids[0] else []
-            return tuple(all_ids[:limit])
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "search", "folder": folder_name, "criteria": criteria_text, "limit": str(limit)}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase, "folder": folder_name, "criteria": criteria_text, "limit": str(limit)}) from exc
 
     def list_emails(self, username: str, password: str, folder: str, offset: int = 0, limit: int = 20) -> tuple[EmailSummary, ...]:
         self._enforce_action("list_emails")
@@ -498,27 +496,26 @@ class ReadOnlyMailboxService:
         if limit <= 0 or limit > MAX_RESULTS:
             raise InvalidInputError(f"limit must be between 1 and {MAX_RESULTS}")
 
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
-        try:
-            status, select_data = client.select(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise NotFoundError(f"Folder not found: {folder_name}")
-            message_count = _select_message_count(select_data)
-            if message_count == 0 or offset >= message_count:
-                return ()
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "fetch"
+                status, select_data = client.select(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise NotFoundError(f"Folder not found: {folder_name}")
+                message_count = _select_message_count(select_data)
+                if message_count == 0 or offset >= message_count:
+                    return ()
 
-            end_sequence = message_count - offset
-            start_sequence = max(1, end_sequence - limit + 1)
-            sequence_set = f"{start_sequence}:{end_sequence}"
-            status, data = client.fetch(sequence_set, "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-            if status != "OK":
-                raise BackendUnavailableError("IMAP list failed", metadata={"imap_phase": "fetch", "folder": folder_name, "offset": str(offset), "limit": str(limit)})
-            return _email_summaries_from_fetch(data)
+                end_sequence = message_count - offset
+                start_sequence = max(1, end_sequence - limit + 1)
+                sequence_set = f"{start_sequence}:{end_sequence}"
+                status, data = client.fetch(sequence_set, "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+                if status != "OK":
+                    raise BackendUnavailableError("IMAP list failed", metadata={"imap_phase": "fetch", "folder": folder_name, "offset": str(offset), "limit": str(limit)})
+                return _email_summaries_from_fetch(data)
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase, "folder": folder_name, "offset": str(offset), "limit": str(limit)}) from exc
 
     def read_email(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000) -> ReadEmailResult:
         self._enforce_action("read_email")
@@ -527,36 +524,35 @@ class ReadOnlyMailboxService:
         if max_chars <= 0:
             raise InvalidInputError("max_chars must be > 0")
 
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "fetch"
+                status, _ = client.select(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise NotFoundError(f"Folder not found: {folder_name}")
+
+                status, data = client.uid("fetch", uid_value, "(RFC822)")
+                if status != "OK" or not data or data[0] is None:
+                    raise NotFoundError(f"Email not found: {uid_value}")
+
+                raw = data[0][1]
+                msg = message_from_bytes(raw)
+                body = _extract_plain_text(msg)
+                if len(body) > max_chars:
+                    body = body[:max_chars]
+
+                return ReadEmailResult(
+                    uid=uid_value,
+                    subject=_decode_header_field(msg, "Subject"),
+                    from_address=_decode_header_field(msg, "From"),
+                    to=_decode_header_field(msg, "To"),
+                    date=_decode_header_field(msg, "Date"),
+                    body_text=body,
+                    attachments=_attachment_summaries(msg, self._config),
+                )
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
-        try:
-            status, _ = client.select(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise NotFoundError(f"Folder not found: {folder_name}")
-
-            status, data = client.uid("fetch", uid_value, "(RFC822)")
-            if status != "OK" or not data or data[0] is None:
-                raise NotFoundError(f"Email not found: {uid_value}")
-
-            raw = data[0][1]
-            msg = message_from_bytes(raw)
-            body = _extract_plain_text(msg)
-            if len(body) > max_chars:
-                body = body[:max_chars]
-
-            return ReadEmailResult(
-                uid=uid_value,
-                subject=_decode_header_field(msg, "Subject"),
-                from_address=_decode_header_field(msg, "From"),
-                to=_decode_header_field(msg, "To"),
-                date=_decode_header_field(msg, "Date"),
-                body_text=body,
-                attachments=_attachment_summaries(msg, self._config),
-            )
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase, "folder": folder_name, "uid": uid_value}) from exc
 
     def get_email_headers(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000) -> EmailHeadersResult:
         self._enforce_action("read_email")
@@ -565,31 +561,30 @@ class ReadOnlyMailboxService:
         if max_chars <= 0:
             raise InvalidInputError("max_chars must be > 0")
 
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "fetch"
+                status, _ = client.select(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise NotFoundError(f"Folder not found: {folder_name}")
+
+                status, data = client.uid("fetch", uid_value, "(BODY.PEEK[HEADER])")
+                if status != "OK" or not data or data[0] is None:
+                    raise NotFoundError(f"Email not found: {uid_value}")
+
+                raw = data[0][1]
+                if not isinstance(raw, bytes):
+                    raise BackendUnavailableError("IMAP header fetch returned invalid data", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value})
+                decoded = raw.decode("utf-8", errors="replace")
+                truncated = len(decoded) > max_chars
+                raw_headers = decoded
+                if truncated:
+                    raw_headers = raw_headers[:max_chars]
+
+                return EmailHeadersResult(uid=uid_value, raw_headers=raw_headers, truncated=truncated)
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
-        try:
-            status, _ = client.select(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise NotFoundError(f"Folder not found: {folder_name}")
-
-            status, data = client.uid("fetch", uid_value, "(BODY.PEEK[HEADER])")
-            if status != "OK" or not data or data[0] is None:
-                raise NotFoundError(f"Email not found: {uid_value}")
-
-            raw = data[0][1]
-            if not isinstance(raw, bytes):
-                raise BackendUnavailableError("IMAP header fetch returned invalid data", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value})
-            decoded = raw.decode("utf-8", errors="replace")
-            truncated = len(decoded) > max_chars
-            raw_headers = decoded
-            if truncated:
-                raw_headers = raw_headers[:max_chars]
-
-            return EmailHeadersResult(uid=uid_value, raw_headers=raw_headers, truncated=truncated)
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase, "folder": folder_name, "uid": uid_value}) from exc
 
     def get_email_attachment(self, username: str, password: str, folder: str, uid: str, attachment_id: str) -> EmailAttachmentContent:
         self._enforce_action("read_email")
@@ -597,33 +592,32 @@ class ReadOnlyMailboxService:
         uid_value = validate_single_message_uid("uid", uid)
         attachment_id_value = _validate_nonempty_single_line("attachment_id", attachment_id)
 
+        imap_phase = "connect"
         try:
-            client = self._imap_adapter.connect(username, password)
-        except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
-        try:
-            status, _ = client.select(encode_mailbox_name(folder_name))
-            if status != "OK":
-                raise NotFoundError(f"Folder not found: {folder_name}")
+            with self._imap_adapter.session(username, password) as client:
+                imap_phase = "fetch"
+                status, _ = client.select(encode_mailbox_name(folder_name))
+                if status != "OK":
+                    raise NotFoundError(f"Folder not found: {folder_name}")
 
-            status, data = client.uid("fetch", uid_value, "(RFC822)")
-            if status != "OK" or not data or data[0] is None:
-                raise NotFoundError(f"Email not found: {uid_value}")
+                status, data = client.uid("fetch", uid_value, "(RFC822)")
+                if status != "OK" or not data or data[0] is None:
+                    raise NotFoundError(f"Email not found: {uid_value}")
 
-            msg = message_from_bytes(data[0][1])
-            index, part = _find_attachment(msg, attachment_id_value)
-            filename = _attachment_filename(part, index)
-            content_type = part.get_content_type()
-            payload = _attachment_payload(part)
-            if payload is None:
-                raise InvalidInputError("attachment payload could not be decoded")
-            if self._config is not None:
-                validate_attachment_allowed(filename, content_type, len(payload), self._config.attachment_policy)
-            return EmailAttachmentContent(
-                filename=validate_attachment_filename(filename),
-                content_type=content_type,
-                size_bytes=len(payload),
-                content_base64=encode_attachment_base64(payload),
-            )
+                msg = message_from_bytes(data[0][1])
+                index, part = _find_attachment(msg, attachment_id_value)
+                filename = _attachment_filename(part, index)
+                content_type = part.get_content_type()
+                payload = _attachment_payload(part)
+                if payload is None:
+                    raise InvalidInputError("attachment payload could not be decoded")
+                if self._config is not None:
+                    validate_attachment_allowed(filename, content_type, len(payload), self._config.attachment_policy)
+                return EmailAttachmentContent(
+                    filename=validate_attachment_filename(filename),
+                    content_type=content_type,
+                    size_bytes=len(payload),
+                    content_base64=encode_attachment_base64(payload),
+                )
         except ImapAdapterError as exc:
-            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": imap_phase, "folder": folder_name, "uid": uid_value}) from exc

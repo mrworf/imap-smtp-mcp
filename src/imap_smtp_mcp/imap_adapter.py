@@ -3,6 +3,8 @@ from __future__ import annotations
 import imaplib
 import socket
 import ssl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
@@ -87,6 +89,19 @@ class ImapAdapter:
                 continue
 
         raise ImapConnectionError("Unable to establish IMAP connection after retries") from last_error
+
+    @contextmanager
+    def session(self, username: str, password: str) -> Iterator[ImapClient]:
+        client = self.connect(username, password)
+        try:
+            yield client
+        finally:
+            logout = getattr(client, "logout", None)
+            if callable(logout):
+                try:
+                    logout()
+                except Exception:
+                    pass
 
     def list_folders(self, client: ImapClient) -> tuple[str, ...]:
         status, folders_raw = client.list()

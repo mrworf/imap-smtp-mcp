@@ -19,6 +19,7 @@ class FakeSmtpClient:
         self.logged_in = False
         self.sent = False
         self.sent_message = None
+        self.quit_calls = 0
 
     def starttls(self, *, context):
         self.started_tls = True
@@ -34,6 +35,7 @@ class FakeSmtpClient:
         return {}
 
     def quit(self):
+        self.quit_calls += 1
         return 221, b"bye"
 
 
@@ -41,6 +43,7 @@ class FakeImapClient:
     def __init__(self) -> None:
         self.appended = False
         self.appended_folder: str | None = None
+        self.logout_calls = 0
 
     def login(self, user, password):
         return "OK", []
@@ -51,6 +54,7 @@ class FakeImapClient:
         return "OK", []
 
     def logout(self):
+        self.logout_calls += 1
         return "BYE", []
 
 
@@ -162,6 +166,57 @@ def test_send_email_append_default_and_disable(config):
     )
     service2.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body", append_to_sent=False)
     assert not imap_client2.appended
+
+
+def test_send_email_closes_smtp_and_imap_after_success(config):
+    smtp_client = FakeSmtpClient()
+    imap_client = FakeImapClient()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: imap_client),
+        config,
+    )
+
+    service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
+
+    assert smtp_client.quit_calls == 1
+    assert imap_client.logout_calls == 1
+
+
+def test_send_email_closes_clients_after_send_or_append_failure(config):
+    class BrokenSmtp(FakeSmtpClient):
+        def send_message(self, message):
+            super().send_message(message)
+            raise SmtpTlsError("send failed")
+
+    smtp_client = BrokenSmtp()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: smtp_client),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: FakeImapClient()),
+        config,
+    )
+
+    with pytest.raises(BackendUnavailableError, match="SMTP backend unavailable"):
+        service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
+
+    assert smtp_client.quit_calls == 1
+
+    class BrokenImap(FakeImapClient):
+        def append(self, folder, flags, date_time, message):
+            super().append(folder, flags, date_time, message)
+            raise RuntimeError("append failed")
+
+    imap_client = BrokenImap()
+    service = SendEmailService(
+        SmtpAdapter(config, smtp_ssl_factory=lambda *_args, **_kwargs: FakeSmtpClient()),
+        ImapAdapter(config, imap_ssl_factory=lambda h, p, *, ssl_context: imap_client),
+        config,
+    )
+
+    with pytest.raises(BackendUnavailableError, match="Email sent but failed to append to sent folder"):
+        service.send_email("smtp-u", "smtp-p", "imap-u", "imap-p", "alice@example.com", ("bob@example.com",), "Hello", "Body")
+
+    assert imap_client.logout_calls == 1
 
 
 def test_send_email_quotes_sent_folder_with_spaces(config, monkeypatch):

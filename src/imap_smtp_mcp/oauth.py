@@ -675,10 +675,8 @@ class OAuthService:
 
     def _verify_imap_login(self, username: str, password: str) -> None:
         try:
-            client = ImapAdapter(self.config).connect(username, password)
-            logout = getattr(client, "logout", None)
-            if callable(logout):
-                logout()
+            with ImapAdapter(self.config).session(username, password):
+                pass
         except ImapAdapterError as exc:
             raise OAuthError("access_denied", "IMAP login failed") from exc
 
