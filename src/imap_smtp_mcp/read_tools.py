@@ -84,6 +84,13 @@ class ReadEmailResult:
 
 
 @dataclass(frozen=True)
+class EmailHeadersResult:
+    uid: str
+    raw_headers: str
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class EmailAttachmentSummary:
     attachment_id: str
     filename: str
@@ -548,6 +555,39 @@ class ReadOnlyMailboxService:
                 body_text=body,
                 attachments=_attachment_summaries(msg, self._config),
             )
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
+
+    def get_email_headers(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000) -> EmailHeadersResult:
+        self._enforce_action("read_email")
+        folder_name = _validate_nonempty_single_line("folder", folder)
+        uid_value = validate_single_message_uid("uid", uid)
+        if max_chars <= 0:
+            raise InvalidInputError("max_chars must be > 0")
+
+        try:
+            client = self._imap_adapter.connect(username, password)
+        except ImapAdapterError as exc:
+            raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "connect", "folder": folder_name, "uid": uid_value}) from exc
+        try:
+            status, _ = client.select(encode_mailbox_name(folder_name))
+            if status != "OK":
+                raise NotFoundError(f"Folder not found: {folder_name}")
+
+            status, data = client.uid("fetch", uid_value, "(BODY.PEEK[HEADER])")
+            if status != "OK" or not data or data[0] is None:
+                raise NotFoundError(f"Email not found: {uid_value}")
+
+            raw = data[0][1]
+            if not isinstance(raw, bytes):
+                raise BackendUnavailableError("IMAP header fetch returned invalid data", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value})
+            decoded = raw.decode("utf-8", errors="replace")
+            truncated = len(decoded) > max_chars
+            raw_headers = decoded
+            if truncated:
+                raw_headers = raw_headers[:max_chars]
+
+            return EmailHeadersResult(uid=uid_value, raw_headers=raw_headers, truncated=truncated)
         except ImapAdapterError as exc:
             raise BackendUnavailableError("IMAP backend unavailable", metadata={"imap_phase": "fetch", "folder": folder_name, "uid": uid_value}) from exc
 

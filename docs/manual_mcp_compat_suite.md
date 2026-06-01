@@ -34,6 +34,7 @@ It verifies:
 - `list_emails`
 - `get_recent_mail`
 - `read_email`
+- `get_email_headers`
 - `get_email_attachment` when a matching message exposes an allowed attachment
 - `create_folder`
 - `rename_folder`

@@ -23,10 +23,11 @@ This is a routing tip for ChatGPT, not a server-side guarantee. For sensitive or
 - Show emails from today in `INBOX` using `search_emails` criteria like `{"and":[{"type":"since","value":"2026-05-13"},{"type":"before","value":"2026-05-14"}]}`, then summarize the senders and subjects.
 - Search `INBOX` for messages containing `invoice` using criteria `{"type":"text","value":"invoice"}` and return up to 25 matches. `text` is the intended full-message search type for exact markers or terms in subject/body; use `subject` only when intentionally narrowing to the Subject header.
 - Read the message with UID `<uid>` from `INBOX`, limiting the body to 4000 characters.
+- Show the raw headers for the message with UID `<uid>` from `INBOX` using `get_email_headers`.
 - Read the message with UID `<uid>` from `INBOX`, inspect its `attachments` metadata, and retrieve only the allowed attachment with `get_email_attachment` using its `attachment_id`.
 - Show the sender identity this connector will use for outgoing mail.
 
-`list_emails` and `get_recent_mail` return newest-first message summaries by mailbox order, with stable IMAP UIDs for follow-up reads or organize actions. `read_email` returns plain readable body text and attachment metadata. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned. Attachment bytes are retrieved separately with `get_email_attachment`; HTML and JavaScript attachments are blocked by default and reported in metadata instead of returned.
+`list_emails` and `get_recent_mail` return newest-first message summaries by mailbox order, with stable IMAP UIDs for follow-up reads or organize actions. `read_email` returns plain readable body text and attachment metadata, while `get_email_headers` returns the original raw message header block without fetching the body. For HTML-only messages, non-visible HTML content such as embedded CSS, scripts, templates, frames, and tracking-oriented markup is stripped before the body is returned. Attachment bytes are retrieved separately with `get_email_attachment`; HTML and JavaScript attachments are blocked by default and reported in metadata instead of returned.
 
 ## Common Send And Organize Prompts
 
@@ -60,4 +61,4 @@ Finally delete_folder MCP Smoke Renamed <marker> only after confirming it was cr
 
 Prefer the ChatGPT-friendly aliases `search_mail`, `get_recent_mail`, and `send_mail` for ordinary natural-language requests. The lower-level tools remain available for exact IMAP UID and folder workflows.
 
-Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `search_mail`, `list_emails`, `get_recent_mail`, `read_email`, `get_email_attachment`, `get_sender_identity`, `send_email`, `send_mail`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.
+Capabilities exercised or intentionally guarded by this prompt: `list_folders`, `search_emails`, `search_mail`, `list_emails`, `get_recent_mail`, `read_email`, `get_email_headers`, `get_email_attachment`, `get_sender_identity`, `send_email`, `send_mail`, `mark_read_state`, `move_email`, `copy_email`, `delete_email_permanent`, `move_to_trash`, `empty_trash`, `create_folder`, `rename_folder`, and `delete_folder`.

@@ -30,6 +30,7 @@ TOOL_SCOPES = {
     "list_emails": (READ_SCOPE,),
     "get_recent_mail": (READ_SCOPE,),
     "read_email": (READ_SCOPE,),
+    "get_email_headers": (READ_SCOPE,),
     "get_email_attachment": (READ_SCOPE,),
     "get_sender_identity": (SEND_SCOPE,),
     "send_email": (SEND_SCOPE,),
@@ -215,6 +216,16 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "folder": {"type": "string", "description": "Mailbox folder containing the message."},
             "uid": {"type": "string", "description": "Single IMAP UID of the message to read."},
             "max_chars": {"type": "integer", "default": 20000, "description": "Maximum body characters to return before truncation."},
+        },
+    },
+    "get_email_headers": {
+        "type": "object",
+        "required": ["folder", "uid"],
+        "additionalProperties": False,
+        "properties": {
+            "folder": {"type": "string", "description": "Mailbox folder containing the message."},
+            "uid": {"type": "string", "description": "Single IMAP UID of the message whose raw headers should be returned."},
+            "max_chars": {"type": "integer", "default": 20000, "description": "Maximum raw header characters to return before truncation."},
         },
     },
     "get_email_attachment": {
@@ -410,6 +421,16 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "truncated": {"type": "boolean"},
         },
     },
+    "get_email_headers": {
+        "type": "object",
+        "required": ["uid", "raw_headers", "truncated"],
+        "additionalProperties": False,
+        "properties": {
+            "uid": {"type": "string"},
+            "raw_headers": {"type": "string"},
+            "truncated": {"type": "boolean"},
+        },
+    },
     "get_email_attachment": {
         "type": "object",
         "required": ["filename", "content_type", "size_bytes", "content_base64"],
@@ -519,6 +540,9 @@ class MailToolController:
             out = _jsonify(result)
             out["truncated"] = len(result.body_text) >= int(args.get("max_chars", 20000))
             return out
+        if name == "get_email_headers":
+            result = self.read_service.get_email_headers(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), int(args.get("max_chars", 20000)))
+            return _jsonify(result)
         if name == "get_email_attachment":
             return self.read_service.get_email_attachment(c.imap_username, c.imap_password, str(args["folder"]), str(args["uid"]), str(args["attachment_id"]))
         if name == "get_sender_identity":
@@ -727,6 +751,7 @@ def _description_for(name: str, config: AppConfig | None = None, credentials: Ma
         "list_emails": "Use this when the user wants paginated email summaries from a specific folder.",
         "get_recent_mail": "Use this when the user asks for recent email summaries, usually from INBOX.",
         "read_email": "Use this when the user wants to read one email by IMAP UID, including bounded body text and attachment metadata.",
+        "get_email_headers": "Use this when the user wants the original raw headers or source headers for one email by IMAP UID.",
         "get_email_attachment": "Use this when the user asks to retrieve one allowed email attachment as base64 content.",
         "get_sender_identity": "Use this when the user asks which display name and email address this connector uses for outgoing mail.",
         "send_email": "Use this when the user explicitly asks to send an email through the authenticated SMTP account.",

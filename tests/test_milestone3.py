@@ -15,6 +15,9 @@ class FakeMailboxClient:
         self.uid_calls = []
         self.fetch_calls = []
         self.selected_folders = []
+        self.raw_headers = {
+            "8": b"Subject: Raw Headers\r\nReceived: from one.example\r\nReceived: from two.example\r\nX-Folded: first\r\n second line\r\n\r\n",
+        }
         self.messages = {
             "1": self._build("Hello", "a@example.com", "b@example.com", "body one"),
             "2": self._build_html("Html", "c@example.com", "d@example.com", "<p>Hello <b>world</b></p>"),
@@ -159,6 +162,10 @@ class FakeMailboxClient:
             return ("OK", [b"1"])
         if command == "fetch":
             uid = args[0]
+            if args[1] == "(BODY.PEEK[HEADER])":
+                if uid not in self.raw_headers:
+                    return ("NO", [None])
+                return ("OK", [(b"x", self.raw_headers[uid])])
             if uid not in self.messages:
                 return ("NO", [None])
             if "HEADER.FIELDS" in args[1]:
@@ -518,6 +525,62 @@ def test_read_email_rejects_sequence_set_uids_before_imap(base_env, uid):
     assert client.uid_calls == []
 
 
+def test_get_email_headers_returns_raw_header_block_without_body(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    result = service.get_email_headers("u", "p", "INBOX", "8")
+
+    assert result.uid == "8"
+    assert result.raw_headers == "Subject: Raw Headers\r\nReceived: from one.example\r\nReceived: from two.example\r\nX-Folded: first\r\n second line\r\n\r\n"
+    assert result.truncated is False
+    assert "body" not in result.raw_headers
+    assert ("fetch", ("8", "(BODY.PEEK[HEADER])")) in client.uid_calls
+    assert ("fetch", ("8", "(RFC822)")) not in client.uid_calls
+
+
+def test_get_email_headers_truncates_raw_header_string(base_env):
+    config = load_config()
+    service = _service(config)
+
+    result = service.get_email_headers("u", "p", "INBOX", "8", max_chars=12)
+
+    assert result.raw_headers == "Subject: Raw"
+    assert result.truncated is True
+
+
+@pytest.mark.parametrize("uid", ["1:*", "1,2", "1:5", "*", "0", "-1", "+1", " "])
+def test_get_email_headers_rejects_sequence_set_uids_before_imap(base_env, uid):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    with pytest.raises(InvalidInputError, match="uid must"):
+        service.get_email_headers("u", "p", "INBOX", uid)
+
+    assert client.uid_calls == []
+
+
+def test_get_email_headers_rejects_invalid_input_before_imap(base_env):
+    config = load_config()
+    service, client = _service_with_client(config)
+
+    with pytest.raises(InvalidInputError, match="folder must be single-line"):
+        service.get_email_headers("u", "p", "IN\nBOX", "8")
+    with pytest.raises(InvalidInputError, match="max_chars must be > 0"):
+        service.get_email_headers("u", "p", "INBOX", "8", max_chars=0)
+
+    assert client.uid_calls == []
+    assert client.selected_folders == []
+
+
+def test_get_email_headers_not_found_shape(base_env):
+    config = load_config()
+    service = _service(config)
+
+    with pytest.raises(NotFoundError, match="Email not found: 999"):
+        service.get_email_headers("u", "p", "INBOX", "999")
+
+
 def test_read_email_safe_truncation(base_env):
     config = load_config()
     service = _service(config)
@@ -589,6 +652,8 @@ def test_action_flag_blocks_before_network(base_env, monkeypatch):
     service, client = _service_with_client(config)
     with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
         service.read_email("u", "p", "INBOX", "1")
+    with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
+        service.get_email_headers("u", "p", "INBOX", "8")
     with pytest.raises(PermissionDisabledError, match="Action disabled: read_email"):
         service.get_email_attachment("u", "p", "INBOX", "6", "part-2")
     assert client.uid_calls == []

@@ -9,7 +9,7 @@ from imap_smtp_mcp.attachments import AttachmentData
 from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, InvalidInputError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
-from imap_smtp_mcp.tool_controller import READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
+from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
 
 @pytest.fixture
@@ -67,6 +67,16 @@ class FakeReadService:
             "content_type": "text/plain",
             "size_bytes": 5,
             "content_base64": "aGVsbG8=",
+        }
+
+    def get_email_headers(self, username: str, password: str, folder: str, uid: str, max_chars: int = 20000):
+        self.calls.append(("get_email_headers", (username, password, folder, uid, max_chars)))
+        raw_headers = "Subject: Hello\r\nX-Test: abc\r\n\r\n"
+        truncated = len(raw_headers) > max_chars
+        return {
+            "uid": uid,
+            "raw_headers": raw_headers[:max_chars] if truncated else raw_headers,
+            "truncated": truncated,
         }
 
 
@@ -192,6 +202,16 @@ def test_attachment_read_tool_schema_scope_and_annotations(controller_env, tmp_p
     assert "text/html" in attachment_tool["description"]
 
 
+def test_email_headers_tool_schema_scope_output_and_annotations() -> None:
+    assert TOOL_SCOPES["get_email_headers"] == (READ_SCOPE,)
+    assert TOOL_SCHEMAS["get_email_headers"]["required"] == ["folder", "uid"]
+    assert TOOL_SCHEMAS["get_email_headers"]["additionalProperties"] is False
+    assert TOOL_SCHEMAS["get_email_headers"]["properties"]["max_chars"]["default"] == 20000
+    assert OUTPUT_SCHEMAS["get_email_headers"]["required"] == ["uid", "raw_headers", "truncated"]
+    assert OUTPUT_SCHEMAS["get_email_headers"]["additionalProperties"] is False
+    assert _annotations_for("get_email_headers") == {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+
+
 def test_send_tool_schema_documents_attachment_limits(controller_env, tmp_path) -> None:
     config = load_config()
     controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
@@ -275,6 +295,13 @@ def test_read_tools_return_object_shaped_structured_content(controller_env, tmp_
         request_id="attachment-1",
         subject="subject",
     ) == {"filename": "note.txt", "content_type": "text/plain", "size_bytes": 5, "content_base64": "aGVsbG8="}
+    assert controller.call_tool(
+        "get_email_headers",
+        {"folder": "INBOX", "uid": "1", "max_chars": 12},
+        _credentials(),
+        request_id="headers-1",
+        subject="subject",
+    ) == {"uid": "1", "raw_headers": "Subject: Hel", "truncated": True}
 
 
 def test_mail_aliases_dispatch_to_existing_read_services(controller_env, tmp_path) -> None:
@@ -328,6 +355,23 @@ def test_mail_aliases_dispatch_to_existing_read_services(controller_env, tmp_pat
         ),
         ("list_emails", ("imap-user", "imap-pass", "INBOX", 0, 5)),
     ]
+
+
+def test_get_email_headers_dispatch_uses_session_credentials_and_default_limit(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+    fake_read = FakeReadService()
+    controller.read_service = fake_read
+
+    assert controller.call_tool(
+        "get_email_headers",
+        {"folder": "INBOX", "uid": "1"},
+        _credentials(),
+        request_id="headers-default",
+        subject="subject",
+    ) == {"uid": "1", "raw_headers": "Subject: Hello\r\nX-Test: abc\r\n\r\n", "truncated": False}
+
+    assert fake_read.calls == [("get_email_headers", ("imap-user", "imap-pass", "INBOX", "1", 20000))]
 
 
 def test_get_recent_mail_defaults_to_inbox_first_recent_page(controller_env, tmp_path) -> None:

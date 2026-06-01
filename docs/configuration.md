@@ -77,7 +77,7 @@ Action flags enable or disable tool families before any adapter/network call. Re
 - `ACTION_LIST_FOLDERS`: allow folder listing.
 - `ACTION_SEARCH_EMAILS`: allow email search.
 - `ACTION_LIST_EMAILS`: allow recent email listing.
-- `ACTION_READ_EMAIL`: allow reading email bodies.
+- `ACTION_READ_EMAIL`: allow reading email bodies, raw headers, and attachment metadata/retrieval.
 - `ACTION_SEND_EMAIL`: allow sending email.
 - `ACTION_MARK_READ_STATE`: allow marking messages read or unread.
 - `ACTION_MOVE_EMAIL`: allow moving messages between folders.
