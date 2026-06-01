@@ -10,7 +10,7 @@ from imap_smtp_mcp.config import load_config
 from imap_smtp_mcp.errors import AuthSessionError, BackendUnavailableError, InvalidInputError, PermissionDisabledError
 from imap_smtp_mcp.oauth import MailCredentials
 from imap_smtp_mcp.read_tools import EmailAttachmentSummary, EmailSummary, ReadEmailResult
-from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, READ_SCOPE, SEND_SCOPE, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
+from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, READ_SCOPE, SEND_SCOPE, TOOL_DEFINITIONS, TOOL_SCHEMAS, TOOL_SCOPES, MailToolController, WRITE_SCOPE, _annotations_for
 
 
 @pytest.fixture
@@ -240,6 +240,27 @@ def test_folder_tool_schemas_scopes_and_annotations() -> None:
     assert _annotations_for("create_folder")["openWorldHint"] is False
     assert _annotations_for("rename_folder")["destructiveHint"] is False
     assert _annotations_for("delete_folder")["destructiveHint"] is True
+
+
+def test_tool_registry_is_source_for_exported_metadata(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+
+    assert set(TOOL_DEFINITIONS) == set(TOOL_SCOPES) == set(TOOL_SCHEMAS) == set(OUTPUT_SCHEMAS)
+    for name, definition in TOOL_DEFINITIONS.items():
+        assert TOOL_SCOPES[name] == definition.scopes
+        assert TOOL_SCHEMAS[name] == definition.input_schema
+        assert OUTPUT_SCHEMAS[name] == definition.output_schema
+
+    listed = {tool["name"]: tool for tool in controller.list_tools(_credentials())}
+    assert set(listed) == set(TOOL_DEFINITIONS)
+    for name, definition in TOOL_DEFINITIONS.items():
+        tool = listed[name]
+        assert tool["inputSchema"]["type"] == definition.input_schema["type"]
+        assert tool["inputSchema"].get("required") == definition.input_schema.get("required")
+        assert tool["outputSchema"] == definition.output_schema
+        assert tool["annotations"] == definition.annotations
+        assert definition.description in tool["description"]
 
 
 def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:

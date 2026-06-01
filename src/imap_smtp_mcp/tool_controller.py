@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import traceback
 from copy import deepcopy
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, cast
 
 from .audit import AuditEvent, AuditLogger
@@ -22,29 +22,6 @@ READ_SCOPE = "mail:read"
 SEND_SCOPE = "mail:send"
 WRITE_SCOPE = "mail:write"
 APP_DISPLAY_NAME = "Personal Email Connector"
-
-TOOL_SCOPES = {
-    "list_folders": (READ_SCOPE,),
-    "search_emails": (READ_SCOPE,),
-    "search_mail": (READ_SCOPE,),
-    "list_emails": (READ_SCOPE,),
-    "get_recent_mail": (READ_SCOPE,),
-    "read_email": (READ_SCOPE,),
-    "get_email_headers": (READ_SCOPE,),
-    "get_email_attachment": (READ_SCOPE,),
-    "get_sender_identity": (SEND_SCOPE,),
-    "send_email": (SEND_SCOPE,),
-    "send_mail": (SEND_SCOPE,),
-    "mark_read_state": (WRITE_SCOPE,),
-    "move_email": (WRITE_SCOPE,),
-    "copy_email": (WRITE_SCOPE,),
-    "delete_email_permanent": (WRITE_SCOPE,),
-    "move_to_trash": (WRITE_SCOPE,),
-    "empty_trash": (WRITE_SCOPE,),
-    "create_folder": (WRITE_SCOPE,),
-    "rename_folder": (WRITE_SCOPE,),
-    "delete_folder": (WRITE_SCOPE,),
-}
 
 _SEARCH_STRING_TYPES = ("text", "body", "subject", "from", "to", "cc", "bcc")
 _SEARCH_DATE_TYPES = ("since", "before", "on", "sentsince", "sentbefore", "senton")
@@ -163,7 +140,7 @@ _SEARCH_CRITERIA_SCHEMA: dict[str, Any] = {
 }
 
 
-TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_folders": {"type": "object", "properties": {}, "additionalProperties": False},
     "search_emails": {
         "type": "object",
@@ -330,7 +307,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     },
 }
 
-OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
+_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_folders": {
         "type": "object",
         "required": ["folders"],
@@ -465,6 +442,72 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
+@dataclass(frozen=True)
+class ToolDefinition:
+    name: str
+    scopes: tuple[str, ...]
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    description: str
+    annotations: dict[str, Any]
+
+
+def _tool_annotations(name: str) -> dict[str, Any]:
+    if name in {"send_email", "send_mail", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
+        return {
+            "readOnlyHint": False,
+            "destructiveHint": name in {"send_email", "send_mail", "delete_email_permanent", "empty_trash", "delete_folder"},
+            "openWorldHint": name in {"send_email", "send_mail"},
+        }
+    return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+
+
+def _tool_definition(
+    name: str,
+    scopes: tuple[str, ...],
+    description: str,
+) -> ToolDefinition:
+    return ToolDefinition(
+        name=name,
+        scopes=scopes,
+        input_schema=_INPUT_SCHEMAS[name],
+        output_schema=_OUTPUT_SCHEMAS[name],
+        description=description,
+        annotations=_tool_annotations(name),
+    )
+
+
+TOOL_DEFINITIONS: dict[str, ToolDefinition] = {
+    definition.name: definition
+    for definition in (
+        _tool_definition("list_folders", (READ_SCOPE,), "Use this when the user wants to see mailbox folders for the authenticated email account."),
+        _tool_definition("search_emails", (READ_SCOPE,), "Use this when the user needs structured IMAP search in a specific folder and wants matching IMAP UIDs."),
+        _tool_definition("search_mail", (READ_SCOPE,), "Use this when the user asks to find email by text, sender, recipient, subject, date, or unread state."),
+        _tool_definition("list_emails", (READ_SCOPE,), "Use this when the user wants paginated email summaries from a specific folder."),
+        _tool_definition("get_recent_mail", (READ_SCOPE,), "Use this when the user asks for recent email summaries, usually from INBOX."),
+        _tool_definition("read_email", (READ_SCOPE,), "Use this when the user wants to read one email by IMAP UID, including bounded body text and attachment metadata."),
+        _tool_definition("get_email_headers", (READ_SCOPE,), "Use this when the user wants the original raw headers or source headers for one email by IMAP UID."),
+        _tool_definition("get_email_attachment", (READ_SCOPE,), "Use this when the user asks to retrieve one allowed email attachment as base64 content."),
+        _tool_definition("get_sender_identity", (SEND_SCOPE,), "Use this when the user asks which display name and email address this connector uses for outgoing mail."),
+        _tool_definition("send_email", (SEND_SCOPE,), "Use this when the user explicitly asks to send an email through the authenticated SMTP account."),
+        _tool_definition("send_mail", (SEND_SCOPE,), "Use this when the user explicitly asks to send mail through the authenticated SMTP account."),
+        _tool_definition("mark_read_state", (WRITE_SCOPE,), "Use this when the user asks to mark an email read or unread."),
+        _tool_definition("move_email", (WRITE_SCOPE,), "Use this when the user asks to move an email from one folder to another."),
+        _tool_definition("copy_email", (WRITE_SCOPE,), "Use this when the user asks to copy an email from one folder to another."),
+        _tool_definition("delete_email_permanent", (WRITE_SCOPE,), "Use this when the user explicitly asks to permanently delete and expunge an email."),
+        _tool_definition("move_to_trash", (WRITE_SCOPE,), "Use this when the user asks to move an email to the configured trash folder."),
+        _tool_definition("empty_trash", (WRITE_SCOPE,), "Use this when the user explicitly asks to permanently delete all mail in the configured trash folder."),
+        _tool_definition("create_folder", (WRITE_SCOPE,), "Use this when the user asks to create an IMAP folder."),
+        _tool_definition("rename_folder", (WRITE_SCOPE,), "Use this when the user asks to rename an IMAP folder."),
+        _tool_definition("delete_folder", (WRITE_SCOPE,), "Use this when the user asks to delete an IMAP folder using the server's default IMAP DELETE behavior."),
+    )
+}
+
+TOOL_SCOPES = {name: definition.scopes for name, definition in TOOL_DEFINITIONS.items()}
+TOOL_SCHEMAS = {name: definition.input_schema for name, definition in TOOL_DEFINITIONS.items()}
+OUTPUT_SCHEMAS = {name: definition.output_schema for name, definition in TOOL_DEFINITIONS.items()}
+
+
 def _jsonify(value: Any) -> Any:
     if is_dataclass(value):
         return {key: _jsonify(item) for key, item in asdict(cast(Any, value)).items()}
@@ -496,20 +539,20 @@ class MailToolController:
 
     def list_tools(self, credentials: MailCredentials | None = None) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
-        for name, schema in TOOL_SCHEMAS.items():
+        for definition in TOOL_DEFINITIONS.values():
             tools.append(
                 {
-                    "name": name,
-                    "description": _description_for(name, self.config, credentials),
-                    "inputSchema": _schema_for(name, schema, self.config),
-                    "outputSchema": OUTPUT_SCHEMAS[name],
-                    "annotations": _annotations_for(name),
+                    "name": definition.name,
+                    "description": _description_for(definition.name, self.config, credentials),
+                    "inputSchema": _schema_for(definition.name, definition.input_schema, self.config),
+                    "outputSchema": definition.output_schema,
+                    "annotations": definition.annotations,
                 }
             )
         return tools
 
     def call_tool(self, name: str, arguments: dict[str, Any], credentials: MailCredentials, *, request_id: str, subject: str) -> Any:
-        if name not in TOOL_SCHEMAS:
+        if name not in TOOL_DEFINITIONS:
             raise InvalidInputError(f"Unknown tool: {name}")
         if not isinstance(arguments, dict):
             raise InvalidInputError("tool arguments must be an object")
@@ -717,7 +760,7 @@ def _search_mail_criteria(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_tool_arguments(name: str, args: dict[str, Any]) -> None:
-    schema = TOOL_SCHEMAS[name]
+    schema = TOOL_DEFINITIONS[name].input_schema
     for field in schema.get("required", []):
         if field not in args:
             raise InvalidInputError(f"{field} is required")
@@ -822,42 +865,15 @@ def _mailbox_routing_text(config: AppConfig | None, credentials: MailCredentials
 
 
 def _description_for(name: str, config: AppConfig | None = None, credentials: MailCredentials | None = None) -> str:
-    descriptions = {
-        "list_folders": "Use this when the user wants to see mailbox folders for the authenticated email account.",
-        "search_emails": "Use this when the user needs structured IMAP search in a specific folder and wants matching IMAP UIDs.",
-        "search_mail": "Use this when the user asks to find email by text, sender, recipient, subject, date, or unread state.",
-        "list_emails": "Use this when the user wants paginated email summaries from a specific folder.",
-        "get_recent_mail": "Use this when the user asks for recent email summaries, usually from INBOX.",
-        "read_email": "Use this when the user wants to read one email by IMAP UID, including bounded body text and attachment metadata.",
-        "get_email_headers": "Use this when the user wants the original raw headers or source headers for one email by IMAP UID.",
-        "get_email_attachment": "Use this when the user asks to retrieve one allowed email attachment as base64 content.",
-        "get_sender_identity": "Use this when the user asks which display name and email address this connector uses for outgoing mail.",
-        "send_email": "Use this when the user explicitly asks to send an email through the authenticated SMTP account.",
-        "send_mail": "Use this when the user explicitly asks to send mail through the authenticated SMTP account.",
-        "mark_read_state": "Use this when the user asks to mark an email read or unread.",
-        "move_email": "Use this when the user asks to move an email from one folder to another.",
-        "copy_email": "Use this when the user asks to copy an email from one folder to another.",
-        "delete_email_permanent": "Use this when the user explicitly asks to permanently delete and expunge an email.",
-        "move_to_trash": "Use this when the user asks to move an email to the configured trash folder.",
-        "empty_trash": "Use this when the user explicitly asks to permanently delete all mail in the configured trash folder.",
-        "create_folder": "Use this when the user asks to create an IMAP folder.",
-        "rename_folder": "Use this when the user asks to rename an IMAP folder.",
-        "delete_folder": "Use this when the user asks to delete an IMAP folder using the server's default IMAP DELETE behavior.",
-    }
+    description = TOOL_DEFINITIONS[name].description
     routing_text = _mailbox_routing_text(config, credentials)
     if name == "get_email_attachment" and config is not None:
-        return f"{descriptions[name]} {routing_text} {_attachment_policy_text(config)}"
+        return f"{description} {routing_text} {_attachment_policy_text(config)}"
     if name in {"send_email", "send_mail"} and config is not None:
         policy = config.attachment_policy
-        return f"{descriptions[name]} {routing_text} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
-    return f"{descriptions[name]} {routing_text}"
+        return f"{description} {routing_text} Optional attachments must be base64 and are limited to {policy.max_count} attachments of {policy.max_bytes} decoded bytes each. {_attachment_blocklist_text(config)} If any attachment is invalid or blocked, no email is sent."
+    return f"{description} {routing_text}"
 
 
 def _annotations_for(name: str) -> dict[str, Any]:
-    if name in {"send_email", "send_mail", "mark_read_state", "move_email", "copy_email", "delete_email_permanent", "move_to_trash", "empty_trash", "create_folder", "rename_folder", "delete_folder"}:
-        return {
-            "readOnlyHint": False,
-            "destructiveHint": name in {"send_email", "send_mail", "delete_email_permanent", "empty_trash", "delete_folder"},
-            "openWorldHint": name in {"send_email", "send_mail"},
-        }
-    return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+    return dict(TOOL_DEFINITIONS[name].annotations)
