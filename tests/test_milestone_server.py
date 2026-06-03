@@ -118,14 +118,14 @@ def _csrf_token_from_html(value: str) -> str:
     return match.group(1)
 
 
-def _authorize_query(client_id: str, *, scope: str = "mail:read mail:send mail:write") -> str:
+def _authorize_query(client_id: str, *, scope: str = "mail:read mail:send mail:write", redirect_uri: str = "https://chatgpt.com/connector/oauth/cb") -> str:
     verifier = "verifier"
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
     return urlencode(
         {
             "response_type": "code",
             "client_id": client_id,
-            "redirect_uri": "https://chatgpt.com/connector/oauth/cb",
+            "redirect_uri": redirect_uri,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
             "scope": scope,
@@ -287,9 +287,68 @@ def test_authorize_get_sets_csrf_cookie_and_hidden_field(http_server):
     assert headers["referrer-policy"] == "no-referrer"
     assert headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
+    assert "base-uri 'none'" in headers["content-security-policy"]
+    assert "form-action 'self' https://chatgpt.com" in headers["content-security-policy"]
     assert _csrf_token_from_html(html)
+    assert 'form method="post" action="/oauth/authorize?' in html
+    assert 'action="https://chatgpt.com' not in html
     assert 'name="sender_display_name"' in html
     assert 'name="sender_email"' in html
+
+
+def test_authorize_get_derives_form_action_csp_from_registered_redirect_origin(server_env, monkeypatch):
+    redirect_uri = "https://llm.example:8443/connector/oauth/cb"
+    monkeypatch.setenv("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS", r"https://llm\.example:8443/connector/oauth/cb")
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda username, password: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": [redirect_uri]})
+        assert status == 201
+        client_id = json.loads(raw)["client_id"]
+        query = _authorize_query(client_id, redirect_uri=redirect_uri)
+
+        status, headers, html = _request("GET", f"{base_url}/oauth/authorize?{query}")
+
+        assert status == 200
+        csp = headers["content-security-policy"]
+        assert "form-action 'self' https://llm.example:8443" in csp
+        assert "/connector/oauth/cb" not in csp
+        assert "chatgpt.com" not in csp
+        assert 'form method="post" action="/oauth/authorize?' in html
+        assert 'action="https://llm.example' not in html
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_authorize_get_rejects_unregistered_redirect_before_authorize_page_csp(server_env, monkeypatch):
+    monkeypatch.setenv("OAUTH_ALLOWED_REDIRECT_URI_PATTERNS", "\n".join((r"https://chatgpt\.com/connector/oauth/cb", r"https://llm\.example/connector/oauth/cb")))
+    config = load_config()
+    oauth = OAuthService(config, imap_verifier=lambda username, password: None)
+    server = MCPHTTPServer(("127.0.0.1", 0), MCPRequestHandler, config=config, oauth_service=oauth, tool_controller=FakeController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    base_url = f"http://{host}:{port}"
+    try:
+        status, _, raw = _request("POST", f"{base_url}/oauth/register", {"redirect_uris": ["https://chatgpt.com/connector/oauth/cb"]})
+        assert status == 201
+        client_id = json.loads(raw)["client_id"]
+        query = _authorize_query(client_id, redirect_uri="https://llm.example/connector/oauth/cb")
+
+        status, headers, raw = _request("GET", f"{base_url}/oauth/authorize?{query}")
+
+        assert status == 400
+        assert json.loads(raw)["error"] == "invalid_redirect_uri"
+        assert "content-security-policy" not in headers
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_authorize_get_returns_slow_down_when_csrf_store_is_full(server_env, monkeypatch):

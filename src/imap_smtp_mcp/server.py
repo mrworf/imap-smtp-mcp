@@ -28,6 +28,7 @@ MAX_FORM_BODY_BYTES = 16_384
 MAX_JSON_BODY_BYTES = 1_048_576
 MAX_AUDIT_REDIRECT_URIS = 10
 MAX_AUDIT_REDIRECT_URI_CHARS = 2048
+DEFAULT_HTML_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 
 class StartupError(RuntimeError):
@@ -154,6 +155,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
                 self.server.config.app_metadata.description,
                 self.server.config.app_metadata.website_url,
             ),
+            content_security_policy=_authorize_form_csp(query["redirect_uri"]),
             headers={"Set-Cookie": _build_authorize_cookie(self.server.config, cookie_value)},
         )
 
@@ -297,12 +299,12 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_html(self, value: str, *, headers: dict[str, str] | None = None) -> None:
+    def _send_html(self, value: str, *, content_security_policy: str = DEFAULT_HTML_CSP, headers: dict[str, str] | None = None) -> None:
         body = value.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", content_security_policy)
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -717,6 +719,20 @@ def _uri_origin(value: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return value
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _csp_origin(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.hostname:
+        raise OAuthError("invalid_redirect_uri", "redirect_uri must be absolute")
+    host = parsed.hostname
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{host}{port}"
+
+
+def _authorize_form_csp(redirect_uri: str) -> str:
+    redirect_origin = _csp_origin(redirect_uri)
+    return f"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self' {redirect_origin}; frame-ancestors 'none'; base-uri 'none'"
 
 
 def _sign_authorize_cookie(config: AppConfig, csrf_token: str, raw_query: str) -> str:
