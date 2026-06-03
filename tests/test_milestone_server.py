@@ -15,7 +15,7 @@ import pytest
 from imap_smtp_mcp.config import ConfigError, load_config
 from imap_smtp_mcp.oauth import CredentialVault, OAuthError, OAuthService
 from imap_smtp_mcp.server import AUTHORIZE_CSRF_COOKIE, MAX_FORM_BODY_BYTES, MAX_JSON_BODY_BYTES, AuthorizeCsrfStore, MCPHTTPServer, MCPRequestHandler, OAuthRateLimiter, StartupError, build_server
-from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, TOOL_SCHEMAS
+from imap_smtp_mcp.tool_controller import OUTPUT_SCHEMAS, TOOL_SCHEMAS, TOOL_SCOPES
 
 
 class FakeController:
@@ -23,7 +23,20 @@ class FakeController:
         sender = ""
         if credentials is not None and credentials.sender_email:
             sender = f" for {credentials.sender_display_name} <{credentials.sender_email}>"
-        return [{"name": name, "description": f"Fake tool{sender}", "inputSchema": schema, "outputSchema": OUTPUT_SCHEMAS[name]} for name, schema in TOOL_SCHEMAS.items()]
+        tools = []
+        for name, schema in TOOL_SCHEMAS.items():
+            security_schemes = [{"type": "oauth2", "scopes": list(TOOL_SCOPES[name])}]
+            tools.append(
+                {
+                    "name": name,
+                    "description": f"Fake tool{sender}",
+                    "inputSchema": schema,
+                    "outputSchema": OUTPUT_SCHEMAS[name],
+                    "securitySchemes": security_schemes,
+                    "_meta": {"securitySchemes": security_schemes},
+                }
+            )
+        return tools
 
     def call_tool(self, name, arguments, credentials, *, request_id, subject):
         return {"tool": name, "imap_username": credentials.imap_username, "smtp_username": credentials.smtp_username}
@@ -766,25 +779,35 @@ def test_json_body_limits_for_register_and_mcp(http_server):
     assert "Content-Length must be a non-negative integer" in raw
 
 
-def test_mcp_requires_bearer_and_lists_tools(http_server):
+def test_mcp_lists_tools_without_bearer(http_server):
     base_url, _ = http_server
     status, headers, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "1", "method": "tools/list"})
-    assert status == 401
-    assert "www-authenticate" in headers
-    assert "oauth-protected-resource" in headers["www-authenticate"]
-    assert headers["x-content-type-options"] == "nosniff"
-
-    token = _token(base_url)
-    status, _, raw = _request("POST", f"{base_url}/sse", {"jsonrpc": "2.0", "id": "2", "method": "tools/list"}, headers={"Authorization": f"Bearer {token}"})
     assert status == 200
     tools = json.loads(raw)["result"]["tools"]
     assert any(tool["name"] == "read_email" for tool in tools)
     assert any(tool["name"] == "get_sender_identity" for tool in tools)
     read_email = next(tool for tool in tools if tool["name"] == "read_email")
-    assert "Test Sender <sender@example.com>" in read_email["description"]
+    assert "Test Sender <sender@example.com>" not in read_email["description"]
+    assert read_email["securitySchemes"] == [{"type": "oauth2", "scopes": ["mail:read"]}]
+    assert read_email["_meta"]["securitySchemes"] == read_email["securitySchemes"]
     create_folder = next(tool for tool in tools if tool["name"] == "create_folder")
     assert create_folder["inputSchema"]["required"] == ["folder"]
     assert create_folder["outputSchema"]["required"] == ["created"]
+    assert create_folder["securitySchemes"] == [{"type": "oauth2", "scopes": ["mail:write"]}]
+
+
+def test_mcp_tool_call_still_requires_bearer(http_server):
+    base_url, _ = http_server
+    status, headers, _ = _request(
+        "POST",
+        f"{base_url}/sse",
+        {"jsonrpc": "2.0", "id": "3", "method": "tools/call", "params": {"name": "list_folders", "arguments": {}}},
+    )
+
+    assert status == 401
+    assert "www-authenticate" in headers
+    assert "oauth-protected-resource" in headers["www-authenticate"]
+    assert headers["x-content-type-options"] == "nosniff"
 
 
 def test_mcp_tool_call_uses_oauth_session_credentials(http_server):

@@ -260,7 +260,25 @@ def test_tool_registry_is_source_for_exported_metadata(controller_env, tmp_path)
         assert tool["inputSchema"].get("required") == definition.input_schema.get("required")
         assert tool["outputSchema"] == definition.output_schema
         assert tool["annotations"] == definition.annotations
+        assert tool["securitySchemes"] == [{"type": "oauth2", "scopes": list(definition.scopes)}]
+        assert tool["_meta"]["securitySchemes"] == tool["securitySchemes"]
         assert definition.description in tool["description"]
+
+
+def test_tool_auth_metadata_advertises_existing_scope_groups(controller_env, tmp_path) -> None:
+    config = load_config()
+    controller = MailToolController(config, audit_logger=AuditLogger(str(tmp_path)))
+
+    listed = {tool["name"]: tool for tool in controller.list_tools()}
+
+    for name, scopes in TOOL_SCOPES.items():
+        expected = [{"type": "oauth2", "scopes": list(scopes)}]
+        assert listed[name]["securitySchemes"] == expected
+        assert listed[name]["_meta"]["securitySchemes"] == expected
+
+    assert listed["read_email"]["securitySchemes"][0]["scopes"] == [READ_SCOPE]
+    assert listed["send_email"]["securitySchemes"][0]["scopes"] == [SEND_SCOPE]
+    assert listed["move_email"]["securitySchemes"][0]["scopes"] == [WRITE_SCOPE]
 
 
 def test_send_tool_schema_does_not_accept_sender_identity_from_caller() -> None:

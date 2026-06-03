@@ -462,6 +462,10 @@ def _tool_annotations(name: str) -> dict[str, Any]:
     return {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
 
 
+def _security_schemes_for(scopes: tuple[str, ...]) -> list[dict[str, Any]]:
+    return [{"type": "oauth2", "scopes": list(scopes)}]
+
+
 def _tool_definition(
     name: str,
     scopes: tuple[str, ...],
@@ -540,6 +544,7 @@ class MailToolController:
     def list_tools(self, credentials: MailCredentials | None = None) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
         for definition in TOOL_DEFINITIONS.values():
+            security_schemes = _security_schemes_for(definition.scopes)
             tools.append(
                 {
                     "name": definition.name,
@@ -547,6 +552,8 @@ class MailToolController:
                     "inputSchema": _schema_for(definition.name, definition.input_schema, self.config),
                     "outputSchema": definition.output_schema,
                     "annotations": definition.annotations,
+                    "securitySchemes": security_schemes,
+                    "_meta": {"securitySchemes": deepcopy(security_schemes)},
                 }
             )
         return tools

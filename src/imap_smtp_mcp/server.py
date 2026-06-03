@@ -217,11 +217,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": self.server.config.app_metadata.display_name, "version": "0.1.0"}, "capabilities": {"tools": {}}}})
             return
         if method == "tools/list":
-            auth = self._require_bearer((), request_id)
-            if not auth:
-                return
-            _, credentials = auth
-            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"tools": self.server.tool_controller.list_tools(credentials)}})
+            self._send_json({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"tools": self.server.tool_controller.list_tools()}})
             return
         if method == "tools/call":
             params = payload.get("params") if isinstance(payload.get("params"), dict) else {}

@@ -120,6 +120,18 @@ For ChatGPT setup, redirect URI allowlists, and notes on untested clients such a
 
 The server supports Dynamic Client Registration and authorization-code + PKCE. Users authorize by entering separate IMAP and SMTP credentials. The IMAP login is verified before tokens are issued.
 
+ChatGPT scans MCP tools during app setup and refresh. `initialize` and `tools/list` are intentionally available without a bearer token so ChatGPT can populate the app's action list. Actual `tools/call` requests remain OAuth-protected, and each mail operation still requires the matching advertised scope before any IMAP or SMTP adapter call.
+
+For ChatGPT App Directory display, configure the public disclosure metadata in both the deployment environment and the ChatGPT app settings:
+
+```env
+MCP_APP_WEBSITE_URL=https://mail-mcp.example.com
+MCP_APP_PRIVACY_POLICY_URL=https://mail-mcp.example.com/privacy
+MCP_APP_TERMS_OF_SERVICE_URL=https://mail-mcp.example.com/terms
+```
+
+After changing connector metadata or tool definitions, use ChatGPT's app settings to refresh/rescan tools when available. Published or workspace-managed apps may require recreating or republishing the app before ChatGPT shows updated actions or disclosure links.
+
 The server also rate-limits registration and authorize POST attempts locally, and bounds in-memory OAuth rate-limit and authorize-form CSRF state with `OAUTH_RATE_LIMIT_MAX_BUCKETS` and `OAUTH_AUTHORIZE_CSRF_MAX_TOKENS`. Keep these app-local protections enabled, and use reverse-proxy request/IP limits for public deployments on `GET /oauth/authorize`, `POST /oauth/authorize`, `POST /oauth/register`, and `POST /oauth/token`.
 
 During OAuth authorization, users also confirm the display name and outbound email address that the server will use for sent mail. Set `SMTP_FROM_DOMAIN=example.com` to let the form suggest `smtp_username@example.com` when the SMTP username is only a local part; usernames that already contain `@` are copied as-is. Users may edit the suggested outbound address before authorizing.
